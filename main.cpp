@@ -18,5 +18,8 @@ int main(int argc, char **argv) {
     ParseCSV *csv_test_parser = new ParseCSV(argv[2]);
     AntColony *ant = new AntColony(csv_train_parse, csv_test_parser);
 
+    delete csv_train_parse;
+    delete csv_test_parser;
+    delete ant;
     return 0;
 }

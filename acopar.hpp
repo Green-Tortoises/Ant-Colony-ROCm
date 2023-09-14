@@ -18,6 +18,8 @@ class ParseCSV {
 
 public:
     ParseCSV(const char *filename);
+    ~ParseCSV();
+
     std::vector<std::vector<float>> getLines();
 
 private:
@@ -32,5 +34,6 @@ class AntColony {
 public:
     // Creating an AntColony using a CSV file
     AntColony(ParseCSV *train, ParseCSV *test);
+    void run();
 
 };

@@ -51,3 +51,11 @@ ParseCSV::ParseCSV(const char *filename) {
 
     file.close();
 }
+
+ParseCSV::~ParseCSV() {
+    this->header.clear();
+
+    for(auto i: this->lines)
+        i.clear();
+    this->lines.clear();
+}
