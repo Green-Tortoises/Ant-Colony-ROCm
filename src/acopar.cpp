@@ -1,5 +1,6 @@
 #include "../acopar.hpp"
 
-AntColony::AntColony(const char *filename) {
-    this->parser = new ParseCSV(filename);
+AntColony::AntColony(ParseCSV *train, ParseCSV *test) {
+    this->train = train;
+    this->test = test;
 }

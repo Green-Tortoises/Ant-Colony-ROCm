@@ -1,18 +1,22 @@
 #include "acopar.hpp"
 
 int main(int argc, char **argv) {
-    if (argc < 3) {
-        printf("It's missing dataset parameters.\n");
-        exit(EXIT_FAILURE);
+    if(argc == 1) {
+        std::cout << "Please run this program as " << argv[argc-1] << " path/to/train/dataset path/to/test/dataset!\n";
+        return 1;
     }
 
-    clock_t start = time(NULL);
+    if (argc < 3) {
+        std::cout << "Please provide path to the train dataset and test dataset.\n";
+        return 2;
+    }
 
-    AntColony *ant = new AntColony(argv[1]);
+    // Starting a random seed
+    srand(time(NULL));
 
-    clock_t stop = time(NULL);
-
-    std::cout << "This execution took " << stop - start << " seconds!\n";
+    ParseCSV *csv_train_parse = new ParseCSV(argv[1]);
+    ParseCSV *csv_test_parser = new ParseCSV(argv[2]);
+    AntColony *ant = new AntColony(csv_train_parse, csv_test_parser);
 
     return 0;
 }
