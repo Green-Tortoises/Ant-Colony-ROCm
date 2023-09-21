@@ -35,7 +35,7 @@ public:
     AntColony(ParseCSV *csv);
     void run();
 
-    // Access to the matrix for debugging purpouses
+    // Access to the matrix for debugging purposes
     Matrix *getMatrix() { return this->csv->getMatrix(); }
 
 private:
