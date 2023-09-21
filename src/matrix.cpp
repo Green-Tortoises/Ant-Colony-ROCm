@@ -20,10 +20,9 @@ void Matrix::set(int row, int col, float value) {
 }
 
 void Matrix::print() {
-  for (int row = 0; row < this->rows(); row++) {
-    for (int col = 0; col < this->cols(); col++) {
-      std::cout << (*this)(row, col) << " ";
-    }
+    for (int row = 0; row < this->rows(); row++)
+        for (int col = 0; col < this->cols(); col++)
+            std::cout << (*this)(row, col) << " ";
+
     std::cout << std::endl;
-  }
 }

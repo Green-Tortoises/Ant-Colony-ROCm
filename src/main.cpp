@@ -12,8 +12,6 @@ int main(int argc, char **argv) {
     ParseCSV *csv_parse = new ParseCSV(argv[1]);
     AntColony *ant = new AntColony(csv_parse);
 
-    ant->getMatrix()->print();
-
     delete csv_parse;
     delete ant;
     return 0;
