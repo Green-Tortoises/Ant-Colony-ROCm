@@ -1,10 +1,13 @@
-#include "../acopar.hpp"
+#include <acopar.hpp>
 
-AntColony::AntColony(ParseCSV *train, ParseCSV *test) {
-    this->train = train;
-    this->test = test;
+AntColony::AntColony(ParseCSV *csv) {
+    this->csv = csv;
 }
 
 void AntColony::run() {
+    this->createColony();
+}
+
+void AntColony::createColony() {
 
 }

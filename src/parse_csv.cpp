@@ -1,4 +1,4 @@
-#include "../acopar.hpp"
+#include <acopar.hpp>
 
 #include <string>
 #include <vector>
@@ -15,38 +15,63 @@ static std::vector<std::string> parseLine(const char *header) {
     return elements;
 }
 
-std::vector<std::vector<float>> ParseCSV::getLines() {
-    return this->lines;
+static int getNumLines(const char *filename) {
+    std::ifstream file;
+    file.open(filename);
+
+    // Checking if the file opened correctly
+    if(!file.is_open()) {
+        std::cerr << "Error opening file: " << filename <<"\n";
+        exit(1);
+    }
+
+    int rows = 0;
+    std::string line;
+    while(std::getline(file, line))
+        rows++;
+
+    file.close();
+    return rows;
 }
 
 void ParseCSV::parseHeader(const char *header) {
     this->header = parseLine(header);
-    this->cols = this->header.size();
 }
 
 ParseCSV::ParseCSV(const char *filename) {
-    this->rows = 0;
+    // Getting number of lines to generate a static matrix later
+    int rows = getNumLines(filename)-1; // do not count header line
+
     std::ifstream file;
-    file.open(filename, std::ios_base::in);
-    char line[1024];
+    file.open(filename);
+
+    // Checking if the file opened correctly
+    if(!file.is_open()) {
+        std::cerr << "Error opening file: " << filename <<"\n";
+        exit(1);
+    }
+
+    const int line_size = 4096;
+    char line[line_size];
 
     // Saving CSV header
-    file.getline(line, 1024);
+    file.getline(line, line_size);
     this->parseHeader(line);
 
-    while(!file.eof()) {
+    int cols = this->header.size();
+    this->matrix = new Matrix(rows, cols);
+
+    for(int i = 0; i < rows; i++) {
         // Getting all lines from a file
         std::vector<std::string> str_line;
-        file.getline(line, 1024);
+        file.getline(line, line_size);
         str_line = parseLine(line);
 
-        // Converting all strings in a line to float
-        std::vector<float> csvFloats;
-        for(std::string i : str_line)
-            csvFloats.push_back(std::stof(i));
-
-        this->lines.push_back(csvFloats);
-        this->rows++;
+        int j = 0;
+        for(std::string str : str_line) {
+            this->matrix->set(i, j, std::stof(str));
+            j++;
+        }
     }
 
     file.close();
@@ -54,8 +79,5 @@ ParseCSV::ParseCSV(const char *filename) {
 
 ParseCSV::~ParseCSV() {
     this->header.clear();
-
-    for(auto i: this->lines)
-        i.clear();
-    this->lines.clear();
+    delete this->matrix;
 }

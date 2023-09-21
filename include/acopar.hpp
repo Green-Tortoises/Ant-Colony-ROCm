@@ -1,3 +1,6 @@
+#ifndef ACOPAR_HPP
+#define ACOPAR_HPP
+
 #include <iostream>
 #include <sstream>
 #include <fstream>
@@ -5,22 +8,19 @@
 #include <ctime>
 #include <vector>
 #include <cstdlib>
-#include <hip/hip_runtime_api.h>
+
+#include <matrix.hpp>
 
 // Parse and get all the usefull data from the CSV
 class ParseCSV {
-    int rows;
-    int cols;
     std::vector<std::string> header;
-    // Lines are made of a line that contains all
-    // the float numbers in that CSV line
-    std::vector<std::vector<float>> lines;
+    Matrix *matrix;
 
 public:
     ParseCSV(const char *filename);
     ~ParseCSV();
 
-    std::vector<std::vector<float>> getLines();
+    Matrix *getMatrix() { return this->matrix; }
 
 private:
     void parseHeader(const char *header);
@@ -28,12 +28,19 @@ private:
 
 // Ant Colony Optmizations code for GPU
 class AntColony {
-    ParseCSV *train;
-    ParseCSV *test;
+    ParseCSV *csv;
 
 public:
     // Creating an AntColony using a CSV file
-    AntColony(ParseCSV *train, ParseCSV *test);
+    AntColony(ParseCSV *csv);
     void run();
 
+    // Access to the matrix for debugging purpouses
+    Matrix *getMatrix() { return this->csv->getMatrix(); }
+
+private:
+    // Creating colony in-memory
+    void createColony();
 };
+
+#endif
