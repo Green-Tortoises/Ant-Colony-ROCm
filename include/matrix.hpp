@@ -6,11 +6,11 @@
 
 // Efficient in memory Matrix implementation
 class Matrix {
+public:
     int rows_;
     int cols_;
     std::vector<float> data_;
 
-public:
     Matrix(int rows, int cols) : rows_(rows), cols_(cols), data_(rows * cols) {}
     ~Matrix() {
         this->data_.clear();
@@ -22,10 +22,13 @@ public:
     }
 
     void set(int row, int col, float value);
+    float get(int row, int col) { return data_[row * cols_ + col]; }
+    float get(int pos) { return data_[pos]; }
     void print();
 
     int rows() const { return rows_; }
     int cols() const { return cols_; }
+    int size() const { return rows_ * cols_; }
 };
 
 #endif

@@ -14,13 +14,12 @@
 // Parse and get all the usefull data from the CSV
 class ParseCSV {
     std::vector<std::string> header;
-    Matrix *matrix;
 
 public:
     ParseCSV(const char *filename);
     ~ParseCSV();
 
-    Matrix *getMatrix() { return this->matrix; }
+    Matrix *matrix;
 
 private:
     void parseHeader(const char *header);
@@ -36,7 +35,7 @@ public:
     void run();
 
     // Access to the matrix for debugging purposes
-    Matrix *getMatrix() { return this->csv->getMatrix(); }
+    Matrix *getMatrix() { return this->csv->matrix; }
 
 private:
     // Creating colony in-memory

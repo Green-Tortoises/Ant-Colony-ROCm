@@ -1,16 +1,7 @@
-#include <matrix.hpp>
-
 #include <iostream>
 
-// __global__ void Matrix {
-//     // Sets all float numbers inside a matrix to 0.
-//   int row = blockIdx.y * blockDim.y + threadIdx.y;
-//   int col = blockIdx.x * blockDim.x + threadIdx.x;
-
-//   if (row < rows && col < cols) {
-//     this->matrix[row * cols + col] = 0.0f;
-//   }
-// }
+#include <matrix.hpp>
+#include <hip/hip_runtime.h>
 
 void Matrix::set(int row, int col, float value) {
     if (row < 0 || row >= this->rows() || col < 0 || col >= this->cols())

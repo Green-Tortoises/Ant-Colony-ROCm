@@ -13,3 +13,6 @@ all:
 
 clean:
 	$(RM) $(executable)
+
+debug:
+	$(CC) $(libs) $(flags) -g $(source) -o $(executable)
