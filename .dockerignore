@@ -30,3 +30,9 @@
 *.exe
 *.out
 *.app
+
+# Usefull resources for the repository
+# but useless for the docker container
+./run.sh
+.vscode
+./examples
