@@ -17,6 +17,7 @@ class ParseCSV {
 
 public:
     ParseCSV(const char *filename);
+    void DumpCSV(const char *filename);
     ~ParseCSV();
 
     Matrix *matrix;
@@ -39,7 +40,7 @@ public:
 
 private:
     // Creating colony in-memory
-    void createColony();
+    void createColony(Matrix *matrix_ptr, float *d_matrix, int *d_colony_matrix);
 };
 
 #endif

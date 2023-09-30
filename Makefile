@@ -1,18 +1,19 @@
 CC=hipcc
 
-libs=-I ./include
-flags=-Wall -O2
-executable=acopar_gpu.out
-source=src/main.cpp \
-	   src/acopar.cpp \
-	   src/matrix.cpp \
-	   src/parse_csv.cpp
+LIBS=-I./include
+CFLAGS=-Wall -O2
+EXECUTABLE=acopar_gpu.out
+SOURCES=$(wildcard src/*.cpp)
+OBJECTS=$(patsubst %.cpp, %.o, $(SOURCES))
 
-all:
-	$(CC) $(libs) $(flags) $(source) -o $(executable)
+all: $(OBJECTS)
+	$(CC) $(OBJECTS) -o $(EXECUTABLE)
+
+$(OBJECTS): src/%.o : src/%.cpp
+	$(CC) $(LIBS) $(CFLAGS) -c $< $(LIBS) -o $@
 
 clean:
-	$(RM) $(executable)
+	$(RM) *.out src/*.o
 
 debug:
-	$(CC) $(libs) $(flags) -g $(source) -o $(executable)
+	$(CC) $(LIBS) $(CFLAGS) -g $(SOURCES) -o $(EXECUTABLE)

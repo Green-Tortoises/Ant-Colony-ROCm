@@ -1,3 +1,6 @@
+#ifndef HIP_ERROR_HPP
+#define HIP_ERROR_HPP
+
 /// \brief Checks if the provided error code is \p hipSuccess and if not,
 /// prints an error message to the standard error output and terminates the program
 /// with an error code.
@@ -11,3 +14,5 @@
             std::exit(1);                                                     \
         }                                                                                   \
     }
+
+#endif

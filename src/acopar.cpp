@@ -10,49 +10,57 @@ AntColony::AntColony(ParseCSV *csv) {
 }
 
 void AntColony::run() {
-    this->createColony();
+    // Creating pointer thats gonna be used on all GPU computations
+    float *d_matrix{};
+    int *d_colony_matrix{};
+
+    // Getting the pointer to the matrix that has all the csv data
+    Matrix *matrix_ptr = this->getMatrix();
+
+    // Getting default values
+    this->createColony(matrix_ptr, d_matrix, d_colony_matrix);
+
+    // Freeing the memory on the GPU
+    hipFree(d_matrix);
+    hipFree(d_colony_matrix);
 }
 
-__global__ void test_mult_numbers(float *d_matrix, int size) {
-    int i = blockIdx.x * blockDim.x + threadIdx.x;
+__global__ void create_colony_matrix(int *d_matrix, int width, int height) {
+    int x = blockIdx.x * blockDim.x + threadIdx.x;
+    int y = blockIdx.y * blockDim.y + threadIdx.y;
 
-    while(i < size) {
-        d_matrix[i] *= 2;
-        i += 16383; // GPU block size
+    if (x < width && y < height) {
+        if (x == y)
+            d_matrix[y*width + x] = 1;
+
+        else
+            d_matrix[y*width + x] = -1;
     }
 }
 
-void test_cpu_mult_numbers(float *matrix, int size) {
-    for(int i = 0; i < size; i++)
-        matrix[i] *= 2;
-}
-
-void AntColony::createColony() {
-    Matrix *matrix_ptr = this->getMatrix();
-    int matrix_size = matrix_ptr->size();
-
-    test_cpu_mult_numbers(matrix_ptr->data_.data(), matrix_size);
-    for(int i = 0; i < matrix_size; i++)
-        std::cout << matrix_ptr->data_[i] << " ";
+void AntColony::createColony(Matrix *matrix_ptr, float *d_matrix, int *d_colony_matrix) {
+    int WIDTH = matrix_ptr->cols();
+    int HEIGHT = matrix_ptr->rows();
+    int matrix_size = WIDTH * HEIGHT;
 
     // Allocating necessary memory on GPU
-    float *d_matrix{};
-    hipMalloc(&d_matrix, matrix_size * sizeof(float));
+    HIP_CHECK(hipMalloc(&d_matrix, matrix_size * sizeof(float)));
+    HIP_CHECK(hipMalloc(&d_colony_matrix, HEIGHT * HEIGHT * sizeof(int)));
 
     // Copying data from host to device
     float *matrix_elements = matrix_ptr->data_.data();
     HIP_CHECK(hipMemcpy(d_matrix, matrix_elements, matrix_size*sizeof(float), hipMemcpyHostToDevice));
 
     // Process the information
-    test_mult_numbers<<<16, 1024>>>(d_matrix, matrix_size);
+    dim3 block(16, 64);
+    dim3 grid((HEIGHT + block.x - 1) / block.x, (HEIGHT + block.y - 1) / block.y);
+    hipLaunchKernelGGL(create_colony_matrix, grid, block, 0, 0, d_colony_matrix, HEIGHT, HEIGHT);
+    hipDeviceSynchronize();
 
     // Getting data back from device
     std::vector<float> d_result(matrix_size);
     HIP_CHECK(hipMemcpy(d_result.data(), d_matrix, matrix_size*sizeof(float), hipMemcpyDeviceToHost));
 
-    // for(int i = 0; i < matrix_size; i++)
-    //     std::cout << d_result[i] << " ";
-
-    // Freeing the memory on the GPU
-    hipFree(d_matrix);
+    std::vector<int> d_colony_result(HEIGHT*HEIGHT);
+    HIP_CHECK(hipMemcpy(d_colony_result.data(), d_colony_matrix, HEIGHT*HEIGHT*sizeof(int), hipMemcpyDeviceToHost));
 }
