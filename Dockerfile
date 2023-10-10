@@ -57,6 +57,6 @@ RUN mkdir /workspaces && chown developer:developer /workspaces
 WORKDIR /workspaces
 VOLUME /workspaces
 
-USER developer
+#USER developer
 
 COPY . .
