@@ -94,6 +94,8 @@ def get_best_solution(ant_solutions: np.ndarray, X, Y) -> np.array:
     # print(f"The winner is ant {best_solution} with accucarcy {accuracies[best_solution]}")
     return ant_solutions[best_solution]
 
+def run_colony_gpu(X, Y, initial_pheromone, evaporarion_rate, Q):
+    pass
 
 def run_colony(X, Y, initial_pheromone, evaporarion_rate, Q):
     distances = get_pairwise_distance(X)

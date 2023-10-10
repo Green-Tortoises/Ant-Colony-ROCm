@@ -1,0 +1,8 @@
+cmake_minimum_required(VERSION 3.15...3.22)
+project(run_colony LANGUAGES CXX)
+
+find_package(Python 3.6 COMPONENTS Interpreter Development REQUIRED)
+find_package(pybind11 CONFIG REQUIRED)
+
+find_package(pybind11)
+pybind11_add_module(run_colony src/run_colony.cpp)
