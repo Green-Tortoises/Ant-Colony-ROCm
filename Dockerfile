@@ -35,10 +35,10 @@ RUN export DEBIAN_FRONTEND=noninteractive; \
     && rm -rf /var/lib/apt/lists/*
 
 # Install CMake
-RUN wget https://github.com/Kitware/CMake/releases/download/v3.21.7/cmake-3.21.7-linux-x86_64.sh \
+RUN wget https://github.com/Kitware/CMake/releases/download/v3.27.7/cmake-3.27.7-linux-x86_64.sh \
     && mkdir /cmake \
-    && sh cmake-3.21.7-linux-x86_64.sh --skip-license --prefix=/cmake \
-    && rm cmake-3.21.7-linux-x86_64.sh
+    && sh cmake-3.27.7-linux-x86_64.sh --skip-license --prefix=/cmake \
+    && rm cmake-3.27.7-linux-x86_64.sh
 
 ENV PATH="/cmake/bin:/opt/rocm/bin:${PATH}"
 
