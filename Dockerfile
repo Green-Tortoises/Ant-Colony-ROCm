@@ -59,4 +59,6 @@ VOLUME /workspaces
 
 #USER developer
 
+RUN pip install "pybind11[global]" && sudo apt update && sudo apt install python3-dev -y
+
 COPY . .
