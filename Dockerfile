@@ -11,6 +11,7 @@ RUN export DEBIAN_FRONTEND=noninteractive; \
         make \
         python3 \
         python3-pip \
+        python3-dev \
         ssh \
         sudo \
         wget \
@@ -59,6 +60,6 @@ VOLUME /workspaces
 
 #USER developer
 
-RUN pip install "pybind11[global]" && sudo apt update && sudo apt install python3-dev -y
+RUN pip install "pybind11[global]"
 
 COPY . .
