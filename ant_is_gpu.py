@@ -153,15 +153,9 @@ def main():
     reduced_database = sys.argv[2]
     columns = sys.argv[3]
 
-    # dataframe = pd.read_csv("databases/ecoli.csv", header=None)
-    #last_row = len(dataframe.columns) - 1
-    #classes = dataframe[last_row]
-    #dataframe = dataframe.drop(columns=[0, last_row])
-    #num_instances = len(dataframe.index)
     start_time = time.time()
-    original_df = pd.read_csv(database, sep=',')
 
-    dataframe = pd.read_csv(database, sep=',')
+    dataframe = pd.read_csv(database, sep=',', header=None)
 
     classes = dataframe[columns]
     dataframe = dataframe.drop(columns=[columns])

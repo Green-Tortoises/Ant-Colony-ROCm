@@ -60,6 +60,6 @@ VOLUME /workspaces
 
 #USER developer
 
-RUN pip install "pybind11[global]"
+RUN pip install -r requirements.txt
 
 COPY . .
