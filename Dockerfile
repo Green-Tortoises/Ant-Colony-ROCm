@@ -60,6 +60,8 @@ VOLUME /workspaces
 
 #USER developer
 
+# Caching all python libraries inside docker
+COPY requirements.txt /workspaces/requirements.txt
 RUN pip install -r requirements.txt
 
 COPY . .

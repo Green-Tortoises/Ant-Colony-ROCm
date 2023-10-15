@@ -1,12 +1,10 @@
-import sys
 import pandas as pd
 import numpy as np
 from sklearn.metrics.pairwise import euclidean_distances
 from sklearn.neighbors import KNeighborsClassifier
 from sklearn.metrics import accuracy_score
+import sys
 
-# Import the c++ gpu module
-import run_colony as rc
 
 from typing import *
 import random
@@ -109,8 +107,6 @@ def run_colony(X, Y, initial_pheromone, evaporarion_rate, Q):
     ant_choices = [[(i, i)] for i in range(the_colony.shape[0])]
     pheromone_trails = create_pheromone_trails(distances, initial_pheromone)
 
-    # print(rc.run(X, Y, initial_pheromone, evaporarion_rate, Q))
-
     while -1 in the_colony:
 
         # Each ant will choose thier next istance
@@ -153,17 +149,18 @@ def run_colony(X, Y, initial_pheromone, evaporarion_rate, Q):
 
 
 def main():
-    if len(sys.argv) < 2:
-        print(f"Usage: python3 {sys.argv[0]} inputdb.csv outputdb.csv column_to_be_used")
-        return
-
+    # dataframe = pd.read_csv("databases/ecoli.csv", header=None)
+    #last_row = len(dataframe.columns) - 1
+    #classes = dataframe[last_row]
+    #dataframe = dataframe.drop(columns=[0, last_row])
+    #num_instances = len(dataframe.index)
     start_time = time.time()
-    original_df = pd.read_csv(sys.argv[1])
+    original_df = pd.read_csv("small.csv", sep=',')
 
-    dataframe = pd.read_csv(sys.argv[1])
+    dataframe = pd.read_csv("small.csv", sep=',')
 
-    classes = dataframe[sys.argv[3]]
-    dataframe = dataframe.drop(columns=[sys.argv[3]])
+    classes = dataframe["2"]
+    dataframe = dataframe.drop(columns=["2"])
     initial_pheromone = 1
     Q = 1
     evaporation_rate = 0.1
@@ -174,7 +171,7 @@ def main():
     print(len(indices_selected))
     #print(indices_selected)
     reduced_dataframe = original_df.iloc[indices_selected]
-    reduced_dataframe.to_csv(sys.argv[2], index=False)
+    reduced_dataframe.to_csv('Home_reduzido.csv', index=False)
     print("Execution finished")
     print("--- %s Hours ---" % ((time.time() - start_time)//3600))
     print("--- %s Minutes ---" % ((time.time() - start_time)//60))
