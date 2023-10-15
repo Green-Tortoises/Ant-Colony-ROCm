@@ -22,14 +22,10 @@ int run_colony_cpu(py::array_t<double> the_colony, py::array_t<double> X, py::ar
 
     auto r = the_colony.unchecked<2>();
 
-    while()
+    while(check_ants(the_colony)) {
 
-    for (py::ssize_t i = 0; i < r.shape(0); i++) {
-        for (py::ssize_t j = 0; j < r.shape(1); j++) {
-            std::cout << r(i, j) << " ";
-        }
-        std::cout << std::endl;  // Print a newline after each row
     }
+
 
     return 12;
 }
