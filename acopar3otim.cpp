@@ -37,11 +37,12 @@ int *d_the_colony;
 int *d_ant_choices;
 int *d_last_choices;
 int *d_ultimo;
-float **matrix; //contem a base de dados de treino
-float **tst_matrix; //contem as instancias para teste
 int best_solution = 0;
+float *d_pheromone_trails;
+float *d_matrix; // Contém um ponteiro para a a matrix dentro da GPU
+float *d_tst_matrix; //contem as instancias para teste dentro da GPU
 int row, col;
-float* d_pheromone_trails;
+
 
 __global__ void _set_colony_diagonal(int* dvc_the_colony, size_t size) {
     int x = blockIdx.x*blockDim.x+threadIdx.x;
@@ -76,12 +77,12 @@ void create_colony() {
     hipDeviceSynchronize();
 }
 
-float** check_matrix_size(char* file_name) {
+float* check_matrix_size(char* file_name) {
     FILE *fp;
     char line[1024];
     char *token;
-    int row = 0;
-    int col = 0;
+    row = 0;
+    col = 0;
     fp = fopen(file_name, "r");
     if (fp == NULL) {
         printf("Erro ao abrir o arquivo.\n");
@@ -98,13 +99,12 @@ float** check_matrix_size(char* file_name) {
         row++;
     }
     fclose(fp);
-    matrix = (float**) malloc (row * sizeof (float *));
-    for (int i = 0; i < row; ++i)
-        matrix[i] = (float*) malloc (col * sizeof (float));
+
+    hipMalloc(&d_matrix, row*col*sizeof(float));
 
     NUM_INSTANCES = row;
     NUM_ATTR = col;
-    return matrix;
+    return d_matrix;
 }
 
 __global__ void _create_pheromone_trails(float *dvc_pheromone_trails, size_t size, int initial_pheromone) {
@@ -182,7 +182,7 @@ void init() {
     hipDeviceSynchronize();
 }
 
-void read_csv(char* file_name, float** matrix) {
+void read_csv(char* file_name, float *d_matr) {
     FILE *fp;
     char line[1024], header[2048];
     char *token;
@@ -193,6 +193,9 @@ void read_csv(char* file_name, float** matrix) {
         printf("Erro ao abrir o arquivo.\n");
         exit(1);
     }
+
+    float matrix[NUM_INSTANCES_TST][NUM_ATTR_TST];
+
     fgets(header, 2048, fp); //desprezar o cabecalho
     while (fgets(line, 1024, fp)) {
         col = 0;
@@ -205,140 +208,46 @@ void read_csv(char* file_name, float** matrix) {
         row++;
     }
     fclose(fp);
+
+    // Copying the entire matrix to the GPU
+    hipMemcpy(&d_matr, &matrix, NUM_INSTANCES_TST*NUM_ATTR_TST*sizeof(float), hipMemcpyHostToDevice);
+
     NUM_INSTANCES = row;
     NUM_ATTR = col;
     printf("%d instancias x %d atributos carregada com sucesso!\n", row, col);
 }
 
-/*/Calcula a distancia euclidiana entre cada par de instancias
-void get_pairwise_distance2(float** matrix) {
-    float sum_squares = 0;
-
-    //float **euclid_distances;
-    distances = malloc (NUM_INSTANCES * sizeof (float *));
-    for (int i = 0; i < NUM_INSTANCES; ++i) {
-        distances[i] = malloc (NUM_INSTANCES * sizeof (float));
-    }
-    //Para cada instancia i e j, calcule a distancia euclidiana entre elas
-    for (int i = 0; i < NUM_INSTANCES; i++) {
-        for (int j = 0; j < NUM_INSTANCES; j++) {
-            sum_squares = 0;
-            for (int k = 0; k < (NUM_ATTR - 1); k++) {//O atributo de classe não entra
-                sum_squares += pow(matrix[i][k] - matrix[j][k], 2);
-            }
-            distances[i][j] = sqrt(sum_squares);
-        }
-    }
-    printf("Distancias calculadas com sucesso!\n");
-    //return euclid_distances;
-}*/
-
-/*Calcula a visibilidade entre cada par de instancias
-void get_visibility_rates_by_distances2() {
-
-    visibilities = malloc (NUM_INSTANCES * sizeof (float *));
-    for (int i = 0; i < NUM_INSTANCES; ++i)
-        visibilities[i] = malloc (NUM_INSTANCES * sizeof (float));
-
-    //Para cada instancia i e j, calcula a visibilidade = 1/distancia
-    for (int i = 0; i < NUM_INSTANCES; i++)
-    {
-        for (int j = 0; j < NUM_INSTANCES; j++)
-        {
-            if ( i != j) {
-                if (distances[i][j] != 0)
-                    visibilities[i][j] = 1.0/distances[i][j];
-                else
-                    visibilities[i][j] = 0;
-            }
-        }
-    }
-    printf("Visibilidades calculadas com sucesso!\n");
-    //return visibilities;
-}*/
-
-/*/Calcula a distancia euclidiana entre cada par de instancias
-void get_pairwise_distance() {
-    float sum_squares = 0;
-    //Para cada instancia i e j, calcule a distancia euclidiana entre elas
-    //#pragma omp target map(from:distances) map(to: matrix)
-    //#pragma omp teams distribute parallel for simd private(sum_squares)
-    //#pragma omp parallel for private(sum_squares) shared(distances)
-    for (int i = 0; i < NUM_INSTANCES; i++) {
-        for (int j = 0; j < NUM_INSTANCES; j++) {
-            sum_squares = 0;
-            for (int k = 0; k < (NUM_ATTR - 1); k++) {//O atributo de classe não entra
-                sum_squares += pow(matrix[i][k] - matrix[j][k], 2);
-            }
-            distances[i][j] = sqrt(sum_squares);
-        }
-    }
-    //printf("Distancias calculadas com sucesso!\n");
-}*/
-
-/*Calcula a visibilidade entre cada par de instancias
-void get_visibility_rates_by_distances() {
-    int i, j;
-    //Para cada instancia i e j, calcula a visibilidade = 1/distancia
-    //#pragma omp target map(tofrom:visibilities) map(to: distances)
-    //#pragma omp teams distribute parallel for simd private(j)
-    //#pragma omp parallel for private(i, j) shared(distances, visibilities)
-    for (i = 0; i < NUM_INSTANCES; i++) {
-        for (j = 0; j < NUM_INSTANCES; j++) {
-            if ( i != j) {
-                if (distances[i][j] != 0)
-                    visibilities[i][j] = 1.0/distances[i][j];
-                else
-                    visibilities[i][j] = 0;
-            }
-        }
-    }
-    //printf("Visibilidades calculadas com sucesso!\n");
-}
-
-void swap(int ant, int i, int j) {
-    int tmp_instance;
-    int tmp_probability;
-    tmp_instance = probab_instances[ant][i];
-    tmp_probability = probabilities[ant][i];
-    probab_instances[ant][i] = probab_instances[ant][j];
-    probabilities[ant][i] = probabilities[ant][j];
-    probab_instances[ant][j] = tmp_instance;
-    probabilities[ant][j] = tmp_probability;
-}
-
-// Ordena crescentemente o array de probabilidades com selectionsort
-void selectionsort(int ant, int n) {
-    int limit = n < 10 ? n : 10;
-    //for(int i = 0; i < (NUM_INSTANCES/20); i++) //ordena 5% da qtde instancias base
-    for (int i = 0; i < (limit-1); i++) { //coloca as 10 maiores probabilidades na frente
-        int posmaior = i;
-        for (int j = (i+1); j < n; j++) {
-            if(probabilities[ant][posmaior] < probabilities[ant][j]) {
-                posmaior = j;
-            }
-        }
-        swap(ant, posmaior, i);
-    }
-}*/
-
-float calc_acertos(int* matches, int total) {
+// Using only one GPU thread to calculate the matches result
+__global__ void _calc_acertos(int* d_matches, int total, float* result) {
+    int x = blockIdx.x*blockDim.x+threadIdx.x;
     int acertos = 0;
-    //omp_set_nested(1);
-    //// #pragma omp parallel for simd reduction(+:acertos)
-    for (int i = 0; i < total; i++) {
-        if( matches[i] == 1)
+
+    if (x < 1) {
+        for (int i = 0; i < total; i++)
             acertos++;
     }
-    return acertos/(1.0*total);
+
+    *result = (float) acertos/(1.0*total);
+}
+
+float calc_acertos(int* d_matches, int total) {
+    const int numThreads = 1;
+    const int numBlocks = 1;
+
+    float h_result;
+    float *d_result; // checar se o ponteiro está apontando para o primeiro e único elemento
+
+    hipMalloc(&d_result, sizeof(float));
+    hipLaunchKernelGGL(_calc_acertos, dim3(numBlocks), dim3(numThreads), 0, 0, d_matches, total, d_result);
+
+    hipMemcpy(&h_result, d_result, sizeof(float), hipMemcpyDeviceToDevice);
+    hipFree(d_result);
+
+    return h_result;
 }
 
 int* clear(int* matches, int n) {
-    //omp_set_nested(1);
-    //// #pragma omp parallel for simd
-    for (int i = 0; i < n; i++) {
-        matches[i] = 0;
-    }
+    hipMemset(&matches, 0, n*sizeof(int));
     return matches;
 }
 
@@ -359,15 +268,15 @@ int main(int argc, char **argv) {
     srand(time(NULL));
     start_time = clock();
 
-    tst_matrix = check_matrix_size(tst_file_name); //le arquivo, aloca memoria p matriz teste
+    d_tst_matrix = check_matrix_size(tst_file_name); //le arquivo, aloca memoria p matriz teste
     NUM_INSTANCES_TST = NUM_INSTANCES;
     NUM_ATTR_TST = NUM_ATTR;
     printf("Matriz teste: ");
-    read_csv(tst_file_name, tst_matrix); //le arquivo e carrega dados na matriz
+    read_csv(tst_file_name, d_tst_matrix); //le arquivo e carrega dados na matriz
 
-    matrix = check_matrix_size(file_name); //le arquivo, aloca memoria p matriz treino
+    d_matrix = check_matrix_size(file_name); //le arquivo, aloca memoria p matriz treino
     printf("Matriz treino: ");
-    read_csv(file_name, matrix); //le arquivo e carrega dados na matriz
+    read_csv(file_name, d_matrix); //le arquivo e carrega dados na matriz
     create_pheromone_trails();
     create_colony();
     init();
@@ -382,15 +291,6 @@ int main(int argc, char **argv) {
     hipMalloc(&d_ultimo, MAX_INSTANCES*sizeof(int));
     hipMalloc(&d_ant_choices, MAX_INSTANCES*MAX_INSTANCES*sizeof(int));
 
-    //Descomente as duas proximas linhas para rodar em GPU
-    //// #pragma omp target map(tofrom:bestaccuracy, the_colony, best_solution) map(to:tst_matrix, matrix)
-    //// #pragma omp teams distribute parallel for simd private(menor_distance, distance, class, ajk) shared(the_colony, bestaccuracy)
-    //Descomente a linha abaixo para setar a qtde de threads
-    //omp_set_num_threads(NUM_THREADS);
-    //Descomente a linha abaixo para permitir que threads criem outras threads
-    //omp_set_nested(1); //esse comando nao deu diferenca no resultado
-    //Descomente a linha abaixo para rodar codigo paralelo vetorizado em CPU
-    //#pragma omp parallel for simd private(menor_distance, distance, class, ajk) shared(the_colony, bestaccuracy, best_solution)
     for (ant = 0; ant < NUM_INSTANCES; ant++) {
         int* matches = (int*) malloc(NUM_INSTANCES_TST * sizeof(int));
 
@@ -460,6 +360,7 @@ int main(int argc, char **argv) {
     hipFree(d_the_colony);
     hipFree(d_ultimo);
     hipFree(d_ant_choices);
+    hipFree(d_matrix);
 
     return 0;
 }
