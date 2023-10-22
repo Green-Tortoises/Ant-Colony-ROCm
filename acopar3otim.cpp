@@ -21,6 +21,7 @@
 #include <hip/hip_runtime.h>
 #include <hip/hip_runtime_api.h>
 
+#define CSV_MAX_BYTE_SIZE 8192
 #define MAX_INSTANCES 15000
 #define MAX_ATTR 100
 #define NUM_THREADS 12
@@ -79,7 +80,7 @@ void create_colony() {
 
 float* check_matrix_size(char* file_name) {
     FILE *fp;
-    char line[1024];
+    char line[CSV_MAX_BYTE_SIZE];
     char *token;
     row = 0;
     col = 0;
@@ -89,7 +90,7 @@ float* check_matrix_size(char* file_name) {
         exit(1);
     }
 
-    while (fgets(line, 1024, fp)) {
+    while (fgets(line, CSV_MAX_BYTE_SIZE, fp)) {
         col = 0;
         token = strtok(line, ",");
         while (token != NULL) {
@@ -132,12 +133,12 @@ void create_pheromone_trails() {
     hipLaunchKernelGGL(_create_pheromone_trails, dimGrid, dimBlock, 0, 0,
                        d_pheromone_trails, NUM_INSTANCES, INITIAL_PHEROMONE);
 
+    // Sync all GPU threads
+    hipDeviceSynchronize();
+
     hipError_t err = hipGetLastError();
     if (err != hipSuccess)
         std::cerr << "Error: " << hipGetErrorString(err) << std::endl;
-
-    // Sync all GPU threads
-    hipDeviceSynchronize();
 }
 
 __global__ void _init(int* d_last_choices, int* d_ultimo, int* d_ant_choices, int* d_the_colony,
@@ -174,17 +175,19 @@ void init() {
     hipLaunchKernelGGL(_init, dimGrid, dimBlock, 0, 0, d_last_choices, d_ultimo, d_ant_choices,
                        d_the_colony, d_pheromone_trails, NUM_INSTANCES, INITIAL_PHEROMONE);
 
+
     hipError_t err = hipGetLastError();
     if (err != hipSuccess) {
         std::cerr << "Error: " << hipGetErrorString(err) << std::endl;
     }
 
     hipDeviceSynchronize();
+    printf("Program initiated\n");
 }
 
 void read_csv(char* file_name, float *d_matr) {
     FILE *fp;
-    char line[1024], header[2048];
+    char line[CSV_MAX_BYTE_SIZE], header[CSV_MAX_BYTE_SIZE];
     char *token;
     int row = 0;
     int col = 0;
@@ -196,8 +199,8 @@ void read_csv(char* file_name, float *d_matr) {
 
     float matrix[NUM_INSTANCES_TST][NUM_ATTR_TST];
 
-    fgets(header, 2048, fp); //desprezar o cabecalho
-    while (fgets(line, 1024, fp)) {
+    fgets(header, CSV_MAX_BYTE_SIZE, fp); //desprezar o cabecalho
+    while (fgets(line, CSV_MAX_BYTE_SIZE, fp)) {
         col = 0;
         token = strtok(line, ",");
         while (token != NULL) {
@@ -214,41 +217,83 @@ void read_csv(char* file_name, float *d_matr) {
 
     NUM_INSTANCES = row;
     NUM_ATTR = col;
-    printf("%d instancias x %d atributos carregada com sucesso!\n", row, col);
+    printf("%d instancies x %d atributes loaded!\n", row, col);
 }
 
-// Using only one GPU thread to calculate the matches result
-__global__ void _calc_acertos(int* d_matches, int total, float* result) {
-    int x = blockIdx.x*blockDim.x+threadIdx.x;
+float calc_acertos(int* matches, int total) {
     int acertos = 0;
 
-    if (x < 1) {
-        for (int i = 0; i < total; i++)
+    for (int i = 0; i < total; i++) {
+        if( matches[i] == 1)
             acertos++;
     }
 
-    *result = (float) acertos/(1.0*total);
+    return (float) acertos/total;
 }
 
-float calc_acertos(int* d_matches, int total) {
-    const int numThreads = 1;
-    const int numBlocks = 1;
-
-    float h_result;
-    float *d_result; // checar se o ponteiro está apontando para o primeiro e único elemento
-
-    hipMalloc(&d_result, sizeof(float));
-    hipLaunchKernelGGL(_calc_acertos, dim3(numBlocks), dim3(numThreads), 0, 0, d_matches, total, d_result);
-
-    hipMemcpy(&h_result, d_result, sizeof(float), hipMemcpyDeviceToDevice);
-    hipFree(d_result);
-
-    return h_result;
+__device__ float distance(float* instance1, float* instance2, int attributes) {
+    float sum_squares = 0.0f;
+    for (int k = 0; k < attributes; k++) {
+        sum_squares += powf(instance1[k] - instance2[k], 2);
+    }
+    return sqrtf(sum_squares);
 }
 
-int* clear(int* matches, int n) {
-    hipMemset(&matches, 0, n*sizeof(int));
-    return matches;
+__device__ void ant_action(int ant, int* the_colony, float* tst_matrix, float* matrix, int* matches, int num_inst, int num_inst_test, int num_attr, int num_attr_tst) {
+    int ajk = threadIdx.x % 100;
+
+    for (int j = 0; j < num_inst; j++) {
+        if (the_colony[ant * num_inst + j] == -1) {
+            if (ajk >= 40)
+                the_colony[ant * num_inst + j] = 1;
+            else
+                the_colony[ant * num_inst + j] = 0;
+        }
+    }
+
+    // KNN process
+    for (int inst_tst = 0; inst_tst < num_inst_test; inst_tst++) {
+        float menor_distance = FLT_MAX;
+        float current_class = -1.0f;
+
+        for (int inst_select = 0; inst_select < num_inst; inst_select++) {
+            if (the_colony[ant * num_inst + inst_select] == 1) {
+                float dist = distance(&tst_matrix[inst_tst * num_attr_tst], &matrix[inst_select * num_attr], num_attr_tst - 1);
+                if (dist < menor_distance) {
+                    menor_distance = dist;
+                    current_class = matrix[inst_select * num_attr + num_attr - 1];
+                }
+            }
+        }
+        if (current_class == tst_matrix[inst_tst * num_attr_tst + num_attr_tst - 1]) {
+            matches[num_inst_test*ant + inst_tst] = 1;
+        } else {
+            matches[num_inst_test*ant + inst_tst] = 0;
+        }
+    }
+}
+
+// Ant colony main kernel function
+__global__ void ant_kernel(int* the_colony, float* tst_matrix, float* matrix, int* matches, int num_inst, int num_inst_tst, int num_attr, int num_attr_tst) {
+    int ant = blockIdx.x * blockDim.x + threadIdx.x;
+    ant_action(ant, the_colony, tst_matrix, matrix, matches, num_inst, num_inst_tst, num_attr, num_attr_tst);
+}
+
+void print_accuracy_results(int *matches) {
+    int bestAnt = -1;
+    float bestAccuracy = 0.0f;
+
+    float accuracyI;
+    for (int i = 0; i < NUM_INSTANCES_TST; i++) {
+        accuracyI = calc_acertos(&matches[i*NUM_INSTANCES_TST], NUM_INSTANCES_TST);
+
+        if (accuracyI > bestAccuracy) {
+            bestAccuracy = accuracyI;
+            bestAnt = i;
+        }
+    }
+
+    printf("Best ant: %d with an accuracy of %f\n", bestAnt, bestAccuracy);
 }
 
 int main(int argc, char **argv) {
@@ -260,107 +305,76 @@ int main(int argc, char **argv) {
     clock_t start_time, end_time;
     double total_time;
     float Q = 1.0;
-    char* file_name = argv[1];
-    char* tst_file_name = argv[2];
-    int last_choice, ant_pos, next_instance, ajk;
-    float probability, final_probability;
 
     srand(time(NULL));
     start_time = clock();
 
-    d_tst_matrix = check_matrix_size(tst_file_name); //le arquivo, aloca memoria p matriz teste
-    NUM_INSTANCES_TST = NUM_INSTANCES;
-    NUM_ATTR_TST = NUM_ATTR;
-    printf("Matriz teste: ");
-    read_csv(tst_file_name, d_tst_matrix); //le arquivo e carrega dados na matriz
-
-    d_matrix = check_matrix_size(file_name); //le arquivo, aloca memoria p matriz treino
-    printf("Matriz treino: ");
-    read_csv(file_name, d_matrix); //le arquivo e carrega dados na matriz
-    create_pheromone_trails();
-    create_colony();
-    init();
-
-    int ant = 0, index;
-    float bestaccuracy = 0.0;
-    float sum_squares = 0, menor_distance, path_smell;
-    float distance;
-
-    // Allocating all necessary memory in the GPU
+    hipMalloc(&d_ant_choices, MAX_INSTANCES*MAX_INSTANCES*sizeof(int));
     hipMalloc(&d_last_choices, MAX_INSTANCES*sizeof(int));
     hipMalloc(&d_ultimo, MAX_INSTANCES*sizeof(int));
-    hipMalloc(&d_ant_choices, MAX_INSTANCES*MAX_INSTANCES*sizeof(int));
 
-    for (ant = 0; ant < NUM_INSTANCES; ant++) {
-        int* matches = (int*) malloc(NUM_INSTANCES_TST * sizeof(int));
+    d_tst_matrix = check_matrix_size(argv[2]); // Read the file, allocate memory for test matrix
+    NUM_INSTANCES_TST = NUM_INSTANCES;
+    NUM_ATTR_TST = NUM_ATTR;
+    printf("Test Matrix: ");
+    read_csv(argv[2], d_tst_matrix); // Read the file and load data into the matrix
 
-        for (int j = 0; j < NUM_INSTANCES; j++) {
-            ajk = rand() % 100;
-            if(the_colony[ant][j] == -1) {
-                if(ajk >= 40)
-                    the_colony[ant][j] = 1;
-                else
-                    the_colony[ant][j] = 0;
-            }
-        }
-        // Roda o KNN com as instancias de teste para verificar a acurácia da solução da formiga
-        for(int inst_tst = 0; inst_tst < NUM_INSTANCES_TST; inst_tst++) { // Para cada instancia de teste
-            menor_distance = FLT_MAX;
-            for (int inst_select = 0; inst_select < NUM_INSTANCES; inst_select++) // pega o subset de instancias selecionadas
-            {
-                if(the_colony[ant][inst_select] == 1 ) {//|| the_colony[ant][inst_select] == 0) { //Se a instancia foi selecionada
-                    //printf("Inst_selected %d\n", inst_select);
-                    sum_squares = 0;
-                    for (int k = 0; k < (NUM_ATTR_TST - 1); k++) // Percorre os atributos 1 a 1
-                    {
-                        sum_squares += pow(tst_matrix[inst_tst][k] - matrix[inst_select][k], 2);
-                    }
-                    distance = sqrt(sum_squares);
-                    if(distance < menor_distance) {
-                        //printf("Menor Distance tst %d - knn%d = %f\n", inst_tst, inst_select, distance);
-                        menor_distance = distance;
-                        class = matrix[inst_select][NUM_ATTR - 1];
-                    }
-                }
-            }
-            if(class == tst_matrix[inst_tst][NUM_ATTR_TST-1]) {
-                matches[inst_tst] = 1;
-            } else matches[inst_tst] = 0;
-        }
+    d_matrix = check_matrix_size(argv[1]); // Read the file, allocate memory for training matrix
+    printf("Training Matrix: ");
+    read_csv(argv[1], d_matrix); // Read the file and load data into the matrix
 
-        float acuracia = calc_acertos(matches, NUM_INSTANCES_TST);
-        if(acuracia > bestaccuracy) {
-            bestaccuracy = acuracia;
-            best_solution = ant;
-            printf("Formiga%d acuracia:%f\n", ant, acuracia);
-        }
+    create_pheromone_trails();
+    printf("Pheromone trails created!\n");
+    create_colony();
+    printf("Colony created in VRAM.\n");
+    init();
+    printf("All init functions executed\n");
 
-        matches = clear(matches, NUM_INSTANCES_TST);
-        free(matches);
+    // Creating the matches matrix all 0 for the GPU results
+    int *d_matches;
+    hipMalloc(&d_matches, NUM_INSTANCES_TST*NUM_INSTANCES_TST*sizeof(int));
+    hipMemset(d_matches, 0, NUM_INSTANCES_TST*NUM_INSTANCES_TST*sizeof(int));
+
+    hipError_t err = hipGetLastError();
+    if (err != hipSuccess) {
+        printf("Kernel Launch Error: %s\n", hipGetErrorString(err));
     }
 
-    printf("Formiga %d - Acuracia global:%f\n", best_solution, bestaccuracy);
-    end_time = clock();
-    total_time = ((double) (end_time - start_time)) / CLOCKS_PER_SEC;
-    printf("Tempo total de execucao: %f segundos\n", total_time);
+    // Setting up kernel launch parameters
+    dim3 dimBlock(32, 32);  // e.g., BLOCK_WIDTH and BLOCK_HEIGHT might be 16, 32, etc.
+    dim3 dimGrid((NUM_INSTANCES + dimBlock.x - 1) / dimBlock.x,
+                 (NUM_INSTANCES + dimBlock.y - 1) / dimBlock.y);
 
-    int qtde_selected = 0;
-    //#pragma omp target map(tofrom:qtde_selected)
-    //#pragma omp teams distribute parallel for reduction(+:qtde_selected)
-    //omp_set_num_threads(NUM_THREADS);
-    //// #pragma omp parallel for reduction(+:qtde_selected)
-    for (int i = 0; i < NUM_INSTANCES; i++) {
-        if(the_colony[best_solution][i] == 1)
-            qtde_selected++;
+    // Launching the kernel
+    hipLaunchKernelGGL(ant_kernel, dimGrid, dimBlock, 0, 0, d_the_colony, d_tst_matrix, d_matrix, d_matches, NUM_INSTANCES, NUM_INSTANCES_TST, NUM_ATTR, NUM_ATTR_TST);
+
+    // Synchronizing device
+    hipDeviceSynchronize();
+
+    err = hipGetLastError();
+    if (err != hipSuccess) {
+        printf("Kernel Launch Error: %s\n", hipGetErrorString(err));
     }
-    printf("%d",qtde_selected);
 
+    // Retrieving results back to host
+    int matches[NUM_INSTANCES_TST*NUM_INSTANCES_TST];
+    hipMemcpy(matches, d_matches, NUM_INSTANCES_TST*NUM_INSTANCES_TST*sizeof(int), hipMemcpyDeviceToHost);
+
+    print_accuracy_results(matches);
+
+    // Freeing GPU memory
     hipFree(d_last_choices);
     hipFree(d_pheromone_trails);
     hipFree(d_the_colony);
     hipFree(d_ultimo);
     hipFree(d_ant_choices);
     hipFree(d_matrix);
+    hipFree(d_tst_matrix);
+    hipFree(d_matches);
+
+    end_time = clock();
+    total_time = (double)(end_time - start_time) / CLOCKS_PER_SEC;
+    printf("Total Execution Time: %f seconds\n", total_time);
 
     return 0;
 }
