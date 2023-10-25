@@ -9,7 +9,10 @@
 */
 #define __HIP_PLATFORM_AMD__
 
+#include <fstream>
 #include <iostream>
+#include <vector>
+#include <string>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -45,6 +48,37 @@ float *d_tst_matrix; //contem as instancias para teste dentro da GPU
 int row, col;
 
 
+class CSV {
+public:
+    std::vector<std::string> headers;
+    size_t row_size;
+    size_t col_size;
+    float *matrix; // Pointer to the GPU matrix
+
+    CSV() {
+        row_size = 0;
+        col_size = 0;
+        matrix = nullptr;
+    }
+
+    void print() {
+        size_t size = this->row_size*this->col_size;
+        float mtr[size];
+        hipMemcpy(&mtr, this->matrix, size*sizeof(float), hipMemcpyHostToDevice);
+
+        for (std::string i : this->headers)
+            std::cout << i << ", ";
+        std::cout << "\n";
+
+        for (int i = 0; i < this->row_size ; i++) {
+            for (int j = 0; j < this->col_size; j++) {
+                std::cout << mtr[i*row_size + j] << " ";
+            }
+            std::cout << "\n";
+        }
+    }
+};
+
 __global__ void _set_colony_diagonal(int* dvc_the_colony, size_t size) {
     int x = blockIdx.x*blockDim.x+threadIdx.x;
     int y = blockIdx.y*blockDim.y+threadIdx.y;
@@ -78,34 +112,41 @@ void create_colony() {
     hipDeviceSynchronize();
 }
 
-float* check_matrix_size(char* file_name) {
-    FILE *fp;
-    char line[CSV_MAX_BYTE_SIZE];
-    char *token;
-    row = 0;
-    col = 0;
-    fp = fopen(file_name, "r");
-    if (fp == NULL) {
-        printf("Erro ao abrir o arquivo.\n");
-        exit(1);
+void read_csv(const char *filename, CSV *csv) {
+    std::ifstream file(filename);
+    std::string tokens, token;
+
+    // Reading header
+    std::string tmp;
+    std::getline(file, token);
+    std::stringstream header(token);
+    while(std::getline(header, tmp, ',')) {
+        csv->headers.push_back(tmp);
+        csv->row_size++;
     }
 
-    while (fgets(line, CSV_MAX_BYTE_SIZE, fp)) {
-        col = 0;
-        token = strtok(line, ",");
-        while (token != NULL) {
-            col++;
-            token = strtok(NULL, ",");
-        }
-        row++;
+    // Reading CSV float values
+    std::vector<float> values;
+    while(!file.eof()) {
+        // Reading line
+        std::getline(file, tokens);
+
+        // Parsing line into tokens
+        std::stringstream line(tokens);
+        while(std::getline(line, token, ','))
+            values.push_back(std::stof(token));
+        csv->col_size++;
     }
-    fclose(fp);
 
-    hipMalloc(&d_matrix, row*col*sizeof(float));
+    file.close();
 
-    NUM_INSTANCES = row;
-    NUM_ATTR = col;
-    return d_matrix;
+    // Copying the matrix to GPU
+    float* d_matrix;
+    hipMalloc(&d_matrix, values.size()*sizeof(float));
+    hipMemcpy(&d_matrix, values.data(), values.size()*sizeof(float), hipMemcpyHostToDevice);
+    csv->matrix = d_matrix;
+
+    std::cout << csv->row_size << " instancies x " << csv->col_size << " atributes loaded!\n";
 }
 
 __global__ void _create_pheromone_trails(float *dvc_pheromone_trails, size_t size, int initial_pheromone) {
@@ -183,41 +224,6 @@ void init() {
 
     hipDeviceSynchronize();
     printf("Program initiated\n");
-}
-
-void read_csv(char* file_name, float *d_matr) {
-    FILE *fp;
-    char line[CSV_MAX_BYTE_SIZE], header[CSV_MAX_BYTE_SIZE];
-    char *token;
-    int row = 0;
-    int col = 0;
-    fp = fopen(file_name, "r");
-    if (fp == NULL) {
-        printf("Erro ao abrir o arquivo.\n");
-        exit(1);
-    }
-
-    float matrix[NUM_INSTANCES_TST][NUM_ATTR_TST];
-
-    fgets(header, CSV_MAX_BYTE_SIZE, fp); //desprezar o cabecalho
-    while (fgets(line, CSV_MAX_BYTE_SIZE, fp)) {
-        col = 0;
-        token = strtok(line, ",");
-        while (token != NULL) {
-            matrix[row][col] = atof(token);
-            col++;
-            token = strtok(NULL, ",");
-        }
-        row++;
-    }
-    fclose(fp);
-
-    // Copying the entire matrix to the GPU
-    hipMemcpy(&d_matr, &matrix, NUM_INSTANCES_TST*NUM_ATTR_TST*sizeof(float), hipMemcpyHostToDevice);
-
-    NUM_INSTANCES = row;
-    NUM_ATTR = col;
-    printf("%d instancies x %d atributes loaded!\n", row, col);
 }
 
 float calc_acertos(int* matches, int total) {
@@ -302,79 +308,89 @@ int main(int argc, char **argv) {
         exit(-1);
     }
 
-    clock_t start_time, end_time;
-    double total_time;
-    float Q = 1.0;
+    CSV *train = new CSV();
+    CSV *test  = new CSV();
 
-    srand(time(NULL));
-    start_time = clock();
+    read_csv(argv[1], train);
+    read_csv(argv[2], test);
 
-    hipMalloc(&d_ant_choices, MAX_INSTANCES*MAX_INSTANCES*sizeof(int));
-    hipMalloc(&d_last_choices, MAX_INSTANCES*sizeof(int));
-    hipMalloc(&d_ultimo, MAX_INSTANCES*sizeof(int));
-
-    d_tst_matrix = check_matrix_size(argv[2]); // Read the file, allocate memory for test matrix
-    NUM_INSTANCES_TST = NUM_INSTANCES;
-    NUM_ATTR_TST = NUM_ATTR;
-    printf("Test Matrix: ");
-    read_csv(argv[2], d_tst_matrix); // Read the file and load data into the matrix
-
-    d_matrix = check_matrix_size(argv[1]); // Read the file, allocate memory for training matrix
-    printf("Training Matrix: ");
-    read_csv(argv[1], d_matrix); // Read the file and load data into the matrix
-
-    create_pheromone_trails();
-    printf("Pheromone trails created!\n");
-    create_colony();
-    printf("Colony created in VRAM.\n");
-    init();
-    printf("All init functions executed\n");
-
-    // Creating the matches matrix all 0 for the GPU results
-    int *d_matches;
-    hipMalloc(&d_matches, NUM_INSTANCES_TST*NUM_INSTANCES_TST*sizeof(int));
-    hipMemset(d_matches, 0, NUM_INSTANCES_TST*NUM_INSTANCES_TST*sizeof(int));
-
-    hipError_t err = hipGetLastError();
-    if (err != hipSuccess) {
-        printf("Kernel Launch Error: %s\n", hipGetErrorString(err));
-    }
-
-    // Setting up kernel launch parameters
-    dim3 dimBlock(32, 32);  // e.g., BLOCK_WIDTH and BLOCK_HEIGHT might be 16, 32, etc.
-    dim3 dimGrid((NUM_INSTANCES + dimBlock.x - 1) / dimBlock.x,
-                 (NUM_INSTANCES + dimBlock.y - 1) / dimBlock.y);
-
-    // Launching the kernel
-    hipLaunchKernelGGL(ant_kernel, dimGrid, dimBlock, 0, 0, d_the_colony, d_tst_matrix, d_matrix, d_matches, NUM_INSTANCES, NUM_INSTANCES_TST, NUM_ATTR, NUM_ATTR_TST);
-
-    // Synchronizing device
-    hipDeviceSynchronize();
-
-    err = hipGetLastError();
-    if (err != hipSuccess) {
-        printf("Kernel Launch Error: %s\n", hipGetErrorString(err));
-    }
-
-    // Retrieving results back to host
-    int matches[NUM_INSTANCES_TST*NUM_INSTANCES_TST];
-    hipMemcpy(matches, d_matches, NUM_INSTANCES_TST*NUM_INSTANCES_TST*sizeof(int), hipMemcpyDeviceToHost);
-
-    print_accuracy_results(matches);
-
-    // Freeing GPU memory
-    hipFree(d_last_choices);
-    hipFree(d_pheromone_trails);
-    hipFree(d_the_colony);
-    hipFree(d_ultimo);
-    hipFree(d_ant_choices);
-    hipFree(d_matrix);
-    hipFree(d_tst_matrix);
-    hipFree(d_matches);
-
-    end_time = clock();
-    total_time = (double)(end_time - start_time) / CLOCKS_PER_SEC;
-    printf("Total Execution Time: %f seconds\n", total_time);
+    train->print();
 
     return 0;
+
+    // clock_t start_time, end_time;
+    // double total_time;
+    // float Q = 1.0;
+
+    // srand(time(NULL));
+    // start_time = clock();
+
+    // hipMalloc(&d_ant_choices, MAX_INSTANCES*MAX_INSTANCES*sizeof(int));
+    // hipMalloc(&d_last_choices, MAX_INSTANCES*sizeof(int));
+    // hipMalloc(&d_ultimo, MAX_INSTANCES*sizeof(int));
+
+    // d_tst_matrix = check_matrix_size(argv[2]); // Read the file, allocate memory for test matrix
+    // NUM_INSTANCES_TST = NUM_INSTANCES;
+    // NUM_ATTR_TST = NUM_ATTR;
+    // printf("Test Matrix: ");
+    // read_csv(argv[2], d_tst_matrix); // Read the file and load data into the matrix
+
+    // d_matrix = check_matrix_size(argv[1]); // Read the file, allocate memory for training matrix
+    // printf("Training Matrix: ");
+    // read_csv(argv[1], d_matrix); // Read the file and load data into the matrix
+
+    // create_pheromone_trails();
+    // printf("Pheromone trails created!\n");
+    // create_colony();
+    // printf("Colony created in VRAM.\n");
+    // init();
+    // printf("All init functions executed\n");
+
+    // // Creating the matches matrix all 0 for the GPU results
+    // int *d_matches;
+    // hipMalloc(&d_matches, NUM_INSTANCES_TST*NUM_INSTANCES_TST*sizeof(int));
+    // hipMemset(d_matches, 0, NUM_INSTANCES_TST*NUM_INSTANCES_TST*sizeof(int));
+
+    // hipError_t err = hipGetLastError();
+    // if (err != hipSuccess) {
+    //     printf("Kernel Launch Error: %s\n", hipGetErrorString(err));
+    // }
+
+    // // Setting up kernel launch parameters
+    // dim3 dimBlock(32, 32);  // e.g., BLOCK_WIDTH and BLOCK_HEIGHT might be 16, 32, etc.
+    // dim3 dimGrid((NUM_INSTANCES + dimBlock.x - 1) / dimBlock.x,
+    //              (NUM_INSTANCES + dimBlock.y - 1) / dimBlock.y);
+
+    // // Launching the kernel
+    // hipLaunchKernelGGL(ant_kernel, dimGrid, dimBlock, 0, 0, d_the_colony, d_tst_matrix, d_matrix, d_matches, NUM_INSTANCES, NUM_INSTANCES_TST, NUM_ATTR, NUM_ATTR_TST);
+
+    // // Synchronizing device
+    // hipDeviceSynchronize();
+
+    // err = hipGetLastError();
+    // if (err != hipSuccess) {
+    //     printf("Kernel Launch Error: %s\n", hipGetErrorString(err));
+    // }
+
+    // // Retrieving results back to host
+    // int matches[NUM_INSTANCES_TST*NUM_INSTANCES_TST];
+    // hipMemcpy(matches, d_matches, NUM_INSTANCES_TST*NUM_INSTANCES_TST*sizeof(int), hipMemcpyDeviceToHost);
+
+    // print_accuracy_results(matches);
+
+    // // Freeing GPU memory
+    // hipFree(d_last_choices);
+    // hipFree(d_pheromone_trails);
+    // hipFree(d_the_colony);
+    // hipFree(d_ultimo);
+    // hipFree(d_ant_choices);
+    // hipFree(d_matrix);
+    // hipFree(d_tst_matrix);
+    // hipFree(d_matches);
+
+    // end_time = clock();
+    // total_time = (double)(end_time - start_time) / CLOCKS_PER_SEC;
+    // printf("Total Execution Time: %f seconds\n", total_time);
+
+    // return 0;
 }
