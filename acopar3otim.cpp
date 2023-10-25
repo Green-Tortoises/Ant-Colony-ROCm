@@ -51,29 +51,38 @@ int row, col;
 class CSV {
 public:
     std::vector<std::string> headers;
-    size_t row_size;
-    size_t col_size;
+    size_t num_columns;
+    size_t num_rows;
     float *matrix; // Pointer to the GPU matrix
 
     CSV() {
-        row_size = 0;
-        col_size = 0;
+        num_columns = 0;
+        num_rows = 0;
         matrix = nullptr;
     }
 
+    ~CSV() {
+        hipFree(this->matrix);
+    }
+
     void print() {
-        size_t size = this->row_size*this->col_size;
+        size_t size = this->num_rows*this->num_columns;
         float mtr[size];
-        hipMemcpy(&mtr, this->matrix, size*sizeof(float), hipMemcpyHostToDevice);
+        hipMemcpy(mtr, this->matrix, size*sizeof(float), hipMemcpyDeviceToHost);
 
-        for (std::string i : this->headers)
-            std::cout << i << ", ";
-        std::cout << "\n";
-
-        for (int i = 0; i < this->row_size ; i++) {
-            for (int j = 0; j < this->col_size; j++) {
-                std::cout << mtr[i*row_size + j] << " ";
+        std::cout << "CSV Header:\n[ ";
+        for (size_t i = 0; i < this->headers.size(); ++i) {
+            std::cout << this->headers[i];
+            if (i != this->headers.size() - 1) {
+                std::cout << ", ";
             }
+        }
+        std::cout << " ]\n";
+
+        std::cout << "Values:\n";
+        for (size_t i = 0; i < this->num_rows; i++) {
+            for (size_t j = 0; j < this->num_columns; j++)
+                std::cout << mtr[i*this->num_columns + j] << " ";
             std::cout << "\n";
         }
     }
@@ -116,37 +125,37 @@ void read_csv(const char *filename, CSV *csv) {
     std::ifstream file(filename);
     std::string tokens, token;
 
+     // Check if file opened successfully
+    if (!file.is_open()) {
+        std::cerr << "Failed to open the file: " << filename << std::endl;
+        return;
+    }
+
     // Reading header
-    std::string tmp;
-    std::getline(file, token);
-    std::stringstream header(token);
-    while(std::getline(header, tmp, ',')) {
-        csv->headers.push_back(tmp);
-        csv->row_size++;
+    std::getline(file, tokens);
+    std::stringstream header(tokens);
+    while (std::getline(header, token, ',')) {
+        csv->headers.push_back(token);
+        csv->num_columns++;  // Renamed from row_size
     }
 
     // Reading CSV float values
     std::vector<float> values;
-    while(!file.eof()) {
-        // Reading line
-        std::getline(file, tokens);
-
+    while (std::getline(file, tokens)) {
         // Parsing line into tokens
         std::stringstream line(tokens);
-        while(std::getline(line, token, ','))
+        while (std::getline(line, token, ','))
             values.push_back(std::stof(token));
-        csv->col_size++;
+        csv->num_rows++;
     }
 
     file.close();
 
     // Copying the matrix to GPU
-    float* d_matrix;
-    hipMalloc(&d_matrix, values.size()*sizeof(float));
-    hipMemcpy(&d_matrix, values.data(), values.size()*sizeof(float), hipMemcpyHostToDevice);
-    csv->matrix = d_matrix;
+    hipMalloc(&csv->matrix, values.size()*sizeof(float));
+    hipMemcpy(csv->matrix, values.data(), values.size()*sizeof(float), hipMemcpyHostToDevice);
 
-    std::cout << csv->row_size << " instancies x " << csv->col_size << " atributes loaded!\n";
+    std::cout << csv->num_rows << " instances x " << csv->num_columns << " attributes loaded!\n";
 }
 
 __global__ void _create_pheromone_trails(float *dvc_pheromone_trails, size_t size, int initial_pheromone) {
