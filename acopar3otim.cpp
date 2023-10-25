@@ -23,6 +23,7 @@
 
 #include <hip/hip_runtime.h>
 #include <hip/hip_runtime_api.h>
+#include <rocrand/rocrand_kernel.h>
 
 #define CSV_MAX_BYTE_SIZE 8192
 #define MAX_INSTANCES 15000
@@ -40,7 +41,6 @@ int *d_the_colony;
 int *d_ant_choices;
 int *d_last_choices;
 int *d_ultimo;
-int best_solution = 0;
 float *d_pheromone_trails;
 
 
