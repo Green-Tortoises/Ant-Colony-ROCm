@@ -23,7 +23,7 @@
 
 #include <hip/hip_runtime.h>
 #include <hip/hip_runtime_api.h>
-#include <rocrand/rocrand_kernel.h>
+#include <hiprand/hiprand.hpp>
 
 #define CSV_MAX_BYTE_SIZE 8192
 #define MAX_INSTANCES 15000
@@ -268,8 +268,18 @@ __device__ float distance(float* instance1, float* instance2, int attributes) {
     return sqrtf(sum_squares);
 }
 
-__device__ void ant_action(int ant, int* the_colony, float* tst_matrix, float* matrix, int* matches, int num_inst, int num_inst_test, int num_attr, int num_attr_tst) {
-    int ajk = threadIdx.x % 100;
+__device__ void ant_action(int ant, int* the_colony, float* tst_matrix, float* matrix, int* matches,
+                           int num_inst, int num_inst_test, int num_attr, int num_attr_tst, int *random_numbers)
+{
+    // Terrible way to generate pseudo random numbers, but ROCm is not support it anyways
+    //int ajk = random_numbers[threadIdx.x] % 100;
+    int ajk = 0;
+    // const unsigned int state_id = hipBlockIdx_x;
+
+    // __shared__ GeneratorState state;
+    // hiprand_mtgp32_block_copy(&states[state_id], &state);
+
+    // printf("------ %d\n", rocrand(&state));
 
     for (int j = 0; j < num_inst; j++) {
         if (the_colony[ant * num_inst + j] == -1) {
@@ -303,9 +313,10 @@ __device__ void ant_action(int ant, int* the_colony, float* tst_matrix, float* m
 }
 
 // Ant colony main kernel function
-__global__ void ant_kernel(int* the_colony, float* tst_matrix, float* matrix, int* matches, int num_inst, int num_inst_tst, int num_attr, int num_attr_tst) {
+__global__ void ant_kernel(int* the_colony, float* tst_matrix, float* matrix, int* matches, int num_inst,
+                           int num_inst_tst, int num_attr, int num_attr_tst, int *random_numbers) {
     int ant = blockIdx.x * blockDim.x + threadIdx.x;
-    ant_action(ant, the_colony, tst_matrix, matrix, matches, num_inst, num_inst_tst, num_attr, num_attr_tst);
+    ant_action(ant, the_colony, tst_matrix, matrix, matches, num_inst, num_inst_tst, num_attr, num_attr_tst, random_numbers);
 }
 
 void print_accuracy_results(int *matches) {
@@ -336,7 +347,7 @@ int main(int argc, char **argv) {
     double total_time;
     float Q = 1.0;
 
-    srand(time(NULL));
+    srand(time(nullptr));
     start_time = clock();
 
     Matrix *train = new Matrix();
@@ -364,7 +375,6 @@ int main(int argc, char **argv) {
     init();
     printf("All init functions executed\n");
 
-
     // Creating the matches matrix all 0 for the GPU results
     int *d_matches;
     hipMalloc(&d_matches, NUM_INSTANCES_TST*NUM_INSTANCES_TST*sizeof(int));
@@ -380,8 +390,19 @@ int main(int argc, char **argv) {
     dim3 dimGrid((NUM_INSTANCES + dimBlock.x - 1) / dimBlock.x,
                  (NUM_INSTANCES + dimBlock.y - 1) / dimBlock.y);
 
+    // Generating random numbers to be used in the GPU
+    // There is no current efficient way to do it in ROCm
+    int random_number[MAX_INSTANCES];
+    for (int i = 0; i < MAX_INSTANCES; i++)
+        random_number[i] = rand();
+
+    int *d_random_numbers;
+    hipMalloc(&d_random_numbers, MAX_INSTANCES*sizeof(int));
+    hipMemcpy(d_random_numbers, random_number, MAX_INSTANCES*sizeof(int), hipMemcpyHostToDevice);
+
     // Launching the kernel
-    hipLaunchKernelGGL(ant_kernel, dimGrid, dimBlock, 0, 0, d_the_colony, train->matrix, train->matrix, d_matches, NUM_INSTANCES, NUM_INSTANCES_TST, NUM_ATTR, NUM_ATTR_TST);
+    hipLaunchKernelGGL(ant_kernel, dimGrid, dimBlock, 0, 0, d_the_colony, train->matrix, train->matrix, d_matches,
+                       NUM_INSTANCES, NUM_INSTANCES_TST, NUM_ATTR, NUM_ATTR_TST, d_random_numbers);
 
     // Synchronizing device
     hipDeviceSynchronize();
