@@ -184,71 +184,6 @@ __global__ void _create_pheromone_trails(float *dvc_pheromone_trails, size_t siz
     }
 }
 
-void create_pheromone_trails() {
-    // printf("Tentando criar matriz de feromonios\n");
-    size_t size = NUM_INSTANCES*NUM_INSTANCES;
-
-    hipMalloc(&d_pheromone_trails, size*sizeof(float));
-
-    dim3 dimBlock(32, 32);  // e.g., BLOCK_WIDTH and BLOCK_HEIGHT might be 16, 32, etc.
-    dim3 dimGrid((NUM_INSTANCES + dimBlock.x - 1) / dimBlock.x,
-                 (NUM_INSTANCES + dimBlock.y - 1) / dimBlock.y);
-
-    hipLaunchKernelGGL(_create_pheromone_trails, dimGrid, dimBlock, 0, 0,
-                       d_pheromone_trails, NUM_INSTANCES, INITIAL_PHEROMONE);
-
-    // Sync all GPU threads
-    hipDeviceSynchronize();
-
-    hipError_t err = hipGetLastError();
-    if (err != hipSuccess)
-        std::cerr << "Error: " << hipGetErrorString(err) << std::endl;
-}
-
-__global__ void _init(int* d_last_choices, int* d_ultimo, int* d_ant_choices, int* d_the_colony,
-                          float* d_pheromone_trails, int numInstances, float initialPheromone) {
-    int i = blockIdx.x * blockDim.x + threadIdx.x;
-    int j = blockIdx.y * blockDim.y + threadIdx.y;
-
-    if (i < numInstances && j < numInstances) {
-        if (j == 0) {
-            d_ant_choices[i*numInstances+j] = (j == 0) ? i : -1;
-        }
-
-        if (i == j) {
-            d_the_colony[i*numInstances+j] = 1;
-            d_pheromone_trails[i*numInstances+j] = 0;
-        } else {
-            d_the_colony[i*numInstances+j] = -1;
-            d_pheromone_trails[i*numInstances+j] = initialPheromone;
-        }
-
-        if(j == 0) {
-            d_last_choices[i] = i;
-            d_ultimo[i] = 1;
-        }
-    }
-}
-
-
-void init() {
-    dim3 dimBlock(32, 32); // Adjust these values based on device properties and performance profiling
-    dim3 dimGrid((NUM_INSTANCES + dimBlock.x - 1) / dimBlock.x,
-                 (NUM_INSTANCES + dimBlock.y - 1) / dimBlock.y);
-
-    hipLaunchKernelGGL(_init, dimGrid, dimBlock, 0, 0, d_last_choices, d_ultimo, d_ant_choices,
-                       d_the_colony, d_pheromone_trails, NUM_INSTANCES, INITIAL_PHEROMONE);
-
-
-    hipError_t err = hipGetLastError();
-    if (err != hipSuccess) {
-        std::cerr << "Error: " << hipGetErrorString(err) << std::endl;
-    }
-
-    hipDeviceSynchronize();
-    printf("Program initiated\n");
-}
-
 float calc_acertos(int* matches, int total) {
     int acertos = 0;
 
@@ -268,12 +203,15 @@ __device__ float distance(float* instance1, float* instance2, int attributes) {
     return sqrtf(sum_squares);
 }
 
-__device__ void ant_action(int ant, int* the_colony, float* tst_matrix, float* matrix, int* matches,
+__device__ void ant_action(int ant, int* the_colony, float* tst_matrix, float* matrix, int* matches, int *matches_completo, int random_size,
                            int num_inst, int num_inst_test, int num_attr, int num_attr_tst, int *random_numbers)
 {
-    int ajk = threadIdx.x % 100;
+    int ajk;
 
     for (int j = 0; j < num_inst; j++) {
+        ajk = random_numbers[ant*num_inst+j] % 100;
+        printf("ajk: %d\n", ajk);
+
         if (the_colony[ant * num_inst + j] == -1) {
             if (ajk >= 40)
                 the_colony[ant * num_inst + j] = 1;
@@ -301,23 +239,57 @@ __device__ void ant_action(int ant, int* the_colony, float* tst_matrix, float* m
         } else {
             matches[num_inst_test*ant + inst_tst] = 0;
         }
+
+        float menor_distance_conjunto_completo = FLT_MAX;
+        float current_class_conjunto_completo = -1.0f;
+
+        for (int inst_select = 0; inst_select < num_inst; inst_select++) { //
+            float dist_completo = distance(&tst_matrix[inst_tst * num_attr_tst], &matrix[inst_select * num_attr], num_attr_tst - 1);
+
+            if (dist_completo < menor_distance_conjunto_completo) {
+                menor_distance_conjunto_completo = dist_completo;
+                current_class = matrix[inst_select * num_attr + num_attr - 1];
+            }
+        }
+        if (current_class == tst_matrix[inst_tst * num_attr_tst + num_attr_tst - 1]) {
+            matches_completo[num_inst_test*ant + inst_tst] = 1;
+        } else {
+            matches_completo[num_inst_test*ant + inst_tst] = 0;
+        }
     }
 }
 
 // Ant colony main kernel function
-__global__ void ant_kernel(int* the_colony, float* tst_matrix, float* matrix, int* matches, int num_inst,
+__global__ void ant_kernel(int* the_colony, float* tst_matrix, float* matrix, int* matches, int* matches_completo, int random_size, int num_inst,
                            int num_inst_tst, int num_attr, int num_attr_tst, int *random_numbers) {
     int ant = blockIdx.x * blockDim.x + threadIdx.x;
-    ant_action(ant, the_colony, tst_matrix, matrix, matches, num_inst, num_inst_tst, num_attr, num_attr_tst, random_numbers);
+    ant_action(ant, the_colony, tst_matrix, matrix, matches, matches_completo, random_size, num_inst, num_inst_tst, num_attr, num_attr_tst, random_numbers);
 }
 
-static void print_accuracy_results(int *matches) {
+static int best_solution_size(int *the_colony, size_t the_colony_size, size_t row_size, int best_ant) {
+    int instances_selected = 0;
+
+    std::cout << "Best ant: " << best_ant << ":\n";
+
+    for (int i = 0; i < the_colony_size; i++) {
+        if (the_colony[row_size*best_ant + i] == 1) {
+            instances_selected++;
+            std::cout << the_colony[row_size*best_ant + i] << "  ";
+        }
+    }
+
+    std::cout << "\n";
+
+    return instances_selected;
+}
+
+static int print_accuracy_results(int *matches, size_t size) {
     int bestAnt = -1;
     float bestAccuracy = 0.0f;
 
     float accuracyI;
-    for (int i = 0; i < NUM_INSTANCES_TST; i++) {
-        accuracyI = calc_acertos(&matches[i*NUM_INSTANCES_TST], NUM_INSTANCES_TST);
+    for (int i = 0; i < size; i++) {
+        accuracyI = calc_acertos(&matches[i*size], size);
 
         if (accuracyI > bestAccuracy) {
             bestAccuracy = accuracyI;
@@ -325,7 +297,9 @@ static void print_accuracy_results(int *matches) {
         }
     }
 
-    printf("Best ant: %d with an accuracy of %f\n", bestAnt, bestAccuracy);
+    printf("%f", bestAccuracy);
+
+    return bestAnt;
 }
 
 int main(int argc, char **argv) {
@@ -355,16 +329,11 @@ int main(int argc, char **argv) {
     NUM_ATTR_TST      = test->num_columns;
 
     // Creating auxiliar matrix
-    hipMalloc(&d_ant_choices, MAX_INSTANCES*MAX_INSTANCES*sizeof(int));
     hipMalloc(&d_last_choices, MAX_INSTANCES*sizeof(int));
     hipMalloc(&d_ultimo, MAX_INSTANCES*sizeof(int));
 
-    create_pheromone_trails();
-    printf("Pheromone trails created!\n");
     create_colony();
     printf("Colony created in VRAM.\n");
-    init();
-    printf("All init functions executed\n");
 
     // Creating the matches matrix all 0 for the GPU results
     int *d_matches;
@@ -377,22 +346,27 @@ int main(int argc, char **argv) {
     }
 
     // Setting up kernel launch parameters
-    dim3 dimBlock(32, 32);  // e.g., BLOCK_WIDTH and BLOCK_HEIGHT might be 16, 32, etc.
-    dim3 dimGrid((NUM_INSTANCES + dimBlock.x - 1) / dimBlock.x,
-                 (NUM_INSTANCES + dimBlock.y - 1) / dimBlock.y);
+    dim3 dimBlock(NUM_INSTANCES);  // e.g., BLOCK_WIDTH and BLOCK_HEIGHT might be 16, 32, etc.
+    dim3 dimGrid((NUM_INSTANCES + dimBlock.x - 1) / dimBlock.x);
 
     // Generating random numbers to be used in the GPU
     // There is no current efficient way to do it in ROCm
-    int random_number[MAX_INSTANCES];
-    for (int i = 0; i < MAX_INSTANCES; i++)
+    int random_size = MAX_INSTANCES*100;
+    int random_number[random_size];
+    for (int i = 0; i < random_size; i++)
         random_number[i] = rand();
 
+
     int *d_random_numbers;
-    hipMalloc(&d_random_numbers, MAX_INSTANCES*sizeof(int));
-    hipMemcpy(d_random_numbers, random_number, MAX_INSTANCES*sizeof(int), hipMemcpyHostToDevice);
+    hipMalloc(&d_random_numbers, random_size*sizeof(int));
+    hipMemcpy(d_random_numbers, random_number, random_size*sizeof(int), hipMemcpyHostToDevice);
+
+    // Creating a vector containing an ant
+    int *d_matches_completo;
+    hipMalloc(&d_matches_completo, MAX_INSTANCES*sizeof(int));
 
     // Launching the kernel
-    hipLaunchKernelGGL(ant_kernel, dimGrid, dimBlock, 0, 0, d_the_colony, train->matrix, train->matrix, d_matches,
+    hipLaunchKernelGGL(ant_kernel, dimGrid, dimBlock, 0, 0, d_the_colony, test->matrix, train->matrix, d_matches, d_matches_completo, random_size,
                        NUM_INSTANCES, NUM_INSTANCES_TST, NUM_ATTR, NUM_ATTR_TST, d_random_numbers);
 
     // Synchronizing device
@@ -407,16 +381,36 @@ int main(int argc, char **argv) {
     int matches[NUM_INSTANCES_TST*NUM_INSTANCES_TST];
     hipMemcpy(matches, d_matches, NUM_INSTANCES_TST*NUM_INSTANCES_TST*sizeof(int), hipMemcpyDeviceToHost);
 
-    print_accuracy_results(matches);
+    int matches_completo[NUM_INSTANCES_TST*sizeof(int)];
+    hipMemcpy(matches_completo, d_matches_completo, NUM_INSTANCES_TST*sizeof(int), hipMemcpyDeviceToHost);
+
+
+    printf("Accuracy of ");
+    int ant = print_accuracy_results(matches, NUM_INSTANCES_TST);
+    printf(" got from ant %d\n", ant);
+
+    std::cout << "-------------\n";
+
+    printf("Accuracy of ");
+    int default_ant = print_accuracy_results(matches_completo, NUM_INSTANCES_TST);
+    printf(" got from the default ant\n");
+
+    std::cout << "-------------\n";
+
+    int h_the_colony[NUM_INSTANCES_TST*NUM_INSTANCES_TST];
+    hipMemcpy(h_the_colony, d_the_colony, NUM_INSTANCES_TST*NUM_INSTANCES_TST*sizeof(int), hipMemcpyDeviceToHost);
+
+    int best_size = best_solution_size(h_the_colony, NUM_INSTANCES, train->num_rows, ant);
+
+    std::cout << "Size of the database: " << NUM_INSTANCES << ", size of the best ant solution: " << best_size << "\n";
 
     // Freeing GPU memory
-    hipFree(d_last_choices);
-    hipFree(d_pheromone_trails);
     hipFree(d_the_colony);
     hipFree(d_ultimo);
     hipFree(d_ant_choices);
     hipFree(d_matches);
     hipFree(d_random_numbers);
+    hipFree(d_matches_completo);
     delete train;
     delete test;
 

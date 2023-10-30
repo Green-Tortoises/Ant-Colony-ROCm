@@ -35,7 +35,6 @@
 # but useless for the docker container
 ./run.sh
 .vscode
-./examples
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
