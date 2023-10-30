@@ -23,7 +23,6 @@
 
 #include <hip/hip_runtime.h>
 #include <hip/hip_runtime_api.h>
-#include <hiprand/hiprand.hpp>
 
 #define CSV_MAX_BYTE_SIZE 8192
 #define MAX_INSTANCES 15000
@@ -35,7 +34,6 @@ int NUM_INSTANCES_TST = 0;
 int NUM_ATTR_TST = 0;
 float INITIAL_PHEROMONE = 1;
 float evaporation_rate = 0.1;
-float Q = 1.0;
 
 int *d_the_colony;
 int *d_ant_choices;
@@ -59,6 +57,8 @@ public:
 
     ~Matrix() {
         hipFree(this->matrix);
+        this->headers.clear();
+        this->headers.shrink_to_fit();
     }
 
     inline size_t matrix_size() {
@@ -271,15 +271,7 @@ __device__ float distance(float* instance1, float* instance2, int attributes) {
 __device__ void ant_action(int ant, int* the_colony, float* tst_matrix, float* matrix, int* matches,
                            int num_inst, int num_inst_test, int num_attr, int num_attr_tst, int *random_numbers)
 {
-    // Terrible way to generate pseudo random numbers, but ROCm is not support it anyways
-    //int ajk = random_numbers[threadIdx.x] % 100;
-    int ajk = 0;
-    // const unsigned int state_id = hipBlockIdx_x;
-
-    // __shared__ GeneratorState state;
-    // hiprand_mtgp32_block_copy(&states[state_id], &state);
-
-    // printf("------ %d\n", rocrand(&state));
+    int ajk = threadIdx.x % 100;
 
     for (int j = 0; j < num_inst; j++) {
         if (the_colony[ant * num_inst + j] == -1) {
@@ -319,7 +311,7 @@ __global__ void ant_kernel(int* the_colony, float* tst_matrix, float* matrix, in
     ant_action(ant, the_colony, tst_matrix, matrix, matches, num_inst, num_inst_tst, num_attr, num_attr_tst, random_numbers);
 }
 
-void print_accuracy_results(int *matches) {
+static void print_accuracy_results(int *matches) {
     int bestAnt = -1;
     float bestAccuracy = 0.0f;
 
@@ -345,7 +337,6 @@ int main(int argc, char **argv) {
 
     clock_t start_time, end_time;
     double total_time;
-    float Q = 1.0;
 
     srand(time(nullptr));
     start_time = clock();
@@ -425,6 +416,7 @@ int main(int argc, char **argv) {
     hipFree(d_ultimo);
     hipFree(d_ant_choices);
     hipFree(d_matches);
+    hipFree(d_random_numbers);
     delete train;
     delete test;
 
