@@ -24,16 +24,14 @@
 #include <hip/hip_runtime.h>
 #include <hip/hip_runtime_api.h>
 
-#define CSV_MAX_BYTE_SIZE 8192
 #define MAX_INSTANCES 15000
 #define MAX_ATTR 100
 #define NUM_THREADS 12
+
 int NUM_INSTANCES = 0;
 int NUM_ATTR = 0;
 int NUM_INSTANCES_TST = 0;
 int NUM_ATTR_TST = 0;
-float INITIAL_PHEROMONE = 1;
-float evaporation_rate = 0.1;
 
 int *d_the_colony;
 int *d_ant_choices;
@@ -114,7 +112,7 @@ void create_colony() {
 
     //Preenche toda a matriz colonia com -1 e
     //posiciona cada formiga em uma instância diferente
-    dim3 dimBlock(32, 32);  // e.g., BLOCK_WIDTH and BLOCK_HEIGHT might be 16, 32, etc.
+    dim3 dimBlock(1);  // e.g., BLOCK_WIDTH and BLOCK_HEIGHT might be 16, 32, etc.
     dim3 dimGrid((NUM_INSTANCES + dimBlock.x - 1) / dimBlock.x,
                  (NUM_INSTANCES + dimBlock.y - 1) / dimBlock.y);
 
@@ -197,9 +195,9 @@ float calc_acertos(int* matches, int total) {
 
 __device__ float distance(float* instance1, float* instance2, int attributes) {
     float sum_squares = 0.0f;
-    for (int k = 0; k < attributes; k++) {
+    for (int k = 0; k < attributes; k++)
         sum_squares += powf(instance1[k] - instance2[k], 2);
-    }
+
     return sqrtf(sum_squares);
 }
 
@@ -210,7 +208,6 @@ __device__ void ant_action(int ant, int* the_colony, float* tst_matrix, float* m
 
     for (int j = 0; j < num_inst; j++) {
         ajk = random_numbers[ant*num_inst+j] % 100;
-        printf("ajk: %d\n", ajk);
 
         if (the_colony[ant * num_inst + j] == -1) {
             if (ajk >= 40)
@@ -262,7 +259,7 @@ __device__ void ant_action(int ant, int* the_colony, float* tst_matrix, float* m
 // Ant colony main kernel function
 __global__ void ant_kernel(int* the_colony, float* tst_matrix, float* matrix, int* matches, int* matches_completo, int random_size, int num_inst,
                            int num_inst_tst, int num_attr, int num_attr_tst, int *random_numbers) {
-    int ant = blockIdx.x * blockDim.x + threadIdx.x;
+    int ant = threadIdx.x;
     ant_action(ant, the_colony, tst_matrix, matrix, matches, matches_completo, random_size, num_inst, num_inst_tst, num_attr, num_attr_tst, random_numbers);
 }
 
@@ -346,12 +343,12 @@ int main(int argc, char **argv) {
     }
 
     // Setting up kernel launch parameters
-    dim3 dimBlock(NUM_INSTANCES);  // e.g., BLOCK_WIDTH and BLOCK_HEIGHT might be 16, 32, etc.
-    dim3 dimGrid((NUM_INSTANCES + dimBlock.x - 1) / dimBlock.x);
+    dim3 dimBlock(NUM_INSTANCES);
+    dim3 dimGrid(1);
 
     // Generating random numbers to be used in the GPU
     // There is no current efficient way to do it in ROCm
-    int random_size = MAX_INSTANCES*100;
+    int random_size = NUM_INSTANCES*NUM_ATTR;
     int random_number[random_size];
     for (int i = 0; i < random_size; i++)
         random_number[i] = rand();
