@@ -202,13 +202,20 @@ __device__ float distance(float* instance1, float* instance2, int attributes) {
     return sqrtf(sum_squares);
 }
 
-__device__ void ant_action(int ant, int* the_colony, float* tst_matrix, float* matrix, int* matches, int *matches_completo, int random_size,
-                           int num_inst, int num_inst_test, int num_attr, int num_attr_tst, int *random_numbers)
+__device__ int gen_random_number(int seed) {
+	uint tid = blockDim.x * blockIdx.x + threadIdx.x;
+	rocrand_state_xorwow state;
+	rocrand_init(seed, tid, 0, &state);
+	return rocrand(&state);
+}
+
+__device__ void ant_action(int ant, int* the_colony, float* tst_matrix, float* matrix, int* matches, int *matches_completo,
+                           int num_inst, int num_inst_test, int num_attr, int num_attr_tst, int random_numbers_seed)
 {
     int ajk;
 
     for (int j = 0; j < num_inst; j++) {
-        ajk = random_numbers[ant*num_inst+j] % 100;
+        ajk = gen_random_number(seed) % 100;
 
         if (the_colony[ant * num_inst + j] == -1) {
             if (ajk >= 40)
@@ -258,10 +265,10 @@ __device__ void ant_action(int ant, int* the_colony, float* tst_matrix, float* m
 }
 
 // Ant colony main kernel function
-__global__ void ant_kernel(int* the_colony, float* tst_matrix, float* matrix, int* matches, int* matches_completo, int random_size, int num_inst,
-                           int num_inst_tst, int num_attr, int num_attr_tst, int *random_numbers) {
+__global__ void ant_kernel(int* the_colony, float* tst_matrix, float* matrix, int* matches, int* matches_completo, int num_inst,
+                           int num_inst_tst, int num_attr, int num_attr_tst, int random_numbers_seed) {
     int ant = threadIdx.x;
-    ant_action(ant, the_colony, tst_matrix, matrix, matches, matches_completo, random_size, num_inst, num_inst_tst, num_attr, num_attr_tst, random_numbers);
+    ant_action(ant, the_colony, tst_matrix, matrix, matches, matches_completo, num_inst, num_inst_tst, num_attr, num_attr_tst, random_numbers_seed);
 }
 
 static int best_solution_size(int *the_colony, size_t the_colony_size, size_t row_size, int best_ant) {
@@ -347,13 +354,6 @@ int main(int argc, char **argv) {
     dim3 dimBlock(NUM_INSTANCES);
     dim3 dimGrid(1);
 
-    // Generating random numbers to be used in the GPU
-    // There is no current efficient way to do it in ROCm
-    int random_size = NUM_INSTANCES*NUM_ATTR;
-    int random_number[random_size];
-    for (int i = 0; i < random_size; i++)
-        random_number[i] = rand();
-
 
     int *d_random_numbers;
     hipMalloc(&d_random_numbers, random_size*sizeof(int));
@@ -363,9 +363,12 @@ int main(int argc, char **argv) {
     int *d_matches_completo;
     hipMalloc(&d_matches_completo, MAX_INSTANCES*sizeof(int));
 
+    // Creating a random seed
+    int seed = rand();
+
     // Launching the kernel
-    hipLaunchKernelGGL(ant_kernel, dimGrid, dimBlock, 0, 0, d_the_colony, test->matrix, train->matrix, d_matches, d_matches_completo, random_size,
-                       NUM_INSTANCES, NUM_INSTANCES_TST, NUM_ATTR, NUM_ATTR_TST, d_random_numbers);
+    hipLaunchKernelGGL(ant_kernel, dimGrid, dimBlock, 0, 0, d_the_colony, test->matrix, train->matrix, d_matches, d_matches_completo,
+                       NUM_INSTANCES, NUM_INSTANCES_TST, NUM_ATTR, NUM_ATTR_TST, seed);
 
     // Synchronizing device
     hipDeviceSynchronize();
