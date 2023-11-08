@@ -23,6 +23,7 @@
 
 #include <hip/hip_runtime.h>
 #include <hip/hip_runtime_api.h>
+#include <rocrand/rocrand_kernel.h>
 
 #define MAX_INSTANCES 15000
 #define MAX_ATTR 100
