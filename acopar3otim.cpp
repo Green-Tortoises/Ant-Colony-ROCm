@@ -202,20 +202,16 @@ __device__ float distance(float* instance1, float* instance2, int attributes) {
     return sqrtf(sum_squares);
 }
 
-__device__ int gen_random_number(int seed) {
-	uint tid = blockDim.x * blockIdx.x + threadIdx.x;
-	rocrand_state_xorwow state;
-	rocrand_init(seed, tid, 0, &state);
-	return rocrand(&state);
-}
-
 __device__ void ant_action(int ant, int* the_colony, float* tst_matrix, float* matrix, int* matches, int *matches_completo,
                            int num_inst, int num_inst_test, int num_attr, int num_attr_tst, int random_numbers_seed)
 {
-    int ajk;
+    uint tid = blockDim.x * blockIdx.x + threadIdx.x;
+	rocrand_state_xorwow state;
+	rocrand_init(random_numbers_seed, tid, 0, &state);
 
+    int ajk;
     for (int j = 0; j < num_inst; j++) {
-        ajk = gen_random_number(seed) % 100;
+        ajk = rocrand(&state) % 100;
 
         if (the_colony[ant * num_inst + j] == -1) {
             if (ajk >= 40)
@@ -354,11 +350,6 @@ int main(int argc, char **argv) {
     dim3 dimBlock(NUM_INSTANCES);
     dim3 dimGrid(1);
 
-
-    int *d_random_numbers;
-    hipMalloc(&d_random_numbers, random_size*sizeof(int));
-    hipMemcpy(d_random_numbers, random_number, random_size*sizeof(int), hipMemcpyHostToDevice);
-
     // Creating a vector containing an ant
     int *d_matches_completo;
     hipMalloc(&d_matches_completo, MAX_INSTANCES*sizeof(int));
@@ -410,7 +401,6 @@ int main(int argc, char **argv) {
     hipFree(d_ultimo);
     hipFree(d_ant_choices);
     hipFree(d_matches);
-    hipFree(d_random_numbers);
     hipFree(d_matches_completo);
     delete train;
     delete test;
