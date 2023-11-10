@@ -263,7 +263,7 @@ __device__ void ant_action(int ant, int* the_colony, float* tst_matrix, float* m
 // Ant colony main kernel function
 __global__ void ant_kernel(int* the_colony, float* tst_matrix, float* matrix, int* matches, int* matches_completo, int num_inst,
                            int num_inst_tst, int num_attr, int num_attr_tst, int random_numbers_seed) {
-    int ant = threadIdx.x;
+    int ant = blockDim.x*blockIdx.x + threadIdx.x;
     ant_action(ant, the_colony, tst_matrix, matrix, matches, matches_completo, num_inst, num_inst_tst, num_attr, num_attr_tst, random_numbers_seed);
 }
 
@@ -290,7 +290,7 @@ static int print_accuracy_results(int *matches, size_t size) {
 
     float accuracyI;
     for (int i = 0; i < size; i++) {
-        accuracyI = calc_acertos(&matches[i*size], size);
+        accuracyI = calc_acertos(&matches[i], size);
 
         if (accuracyI > bestAccuracy) {
             bestAccuracy = accuracyI;
@@ -370,10 +370,10 @@ int main(int argc, char **argv) {
     }
 
     // Retrieving results back to host
-    int matches[NUM_INSTANCES_TST*NUM_INSTANCES_TST];
+    int *matches = (int*)malloc(NUM_INSTANCES_TST*NUM_INSTANCES_TST*sizeof(int));
     hipMemcpy(matches, d_matches, NUM_INSTANCES_TST*NUM_INSTANCES_TST*sizeof(int), hipMemcpyDeviceToHost);
 
-    int matches_completo[NUM_INSTANCES_TST*sizeof(int)];
+    int *matches_completo = (int*)malloc(NUM_INSTANCES_TST*sizeof(int));
     hipMemcpy(matches_completo, d_matches_completo, NUM_INSTANCES_TST*sizeof(int), hipMemcpyDeviceToHost);
 
 
@@ -389,12 +389,19 @@ int main(int argc, char **argv) {
 
     std::cout << "-------------\n";
 
-    int h_the_colony[NUM_INSTANCES_TST*NUM_INSTANCES_TST];
+    int *h_the_colony = (int*)malloc(NUM_INSTANCES_TST*NUM_INSTANCES_TST*sizeof(int));
     hipMemcpy(h_the_colony, d_the_colony, NUM_INSTANCES_TST*NUM_INSTANCES_TST*sizeof(int), hipMemcpyDeviceToHost);
 
+    exit(0);
     int best_size = best_solution_size(h_the_colony, NUM_INSTANCES, train->num_rows, ant);
+    exit(0);
 
     std::cout << "Size of the database: " << NUM_INSTANCES << ", size of the best ant solution: " << best_size << "\n";
+
+    // Freeing RAM memory
+    free(matches);
+    free(matches_completo);
+    free(h_the_colony);
 
     // Freeing GPU memory
     hipFree(d_the_colony);
