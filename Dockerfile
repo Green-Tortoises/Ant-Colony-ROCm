@@ -11,6 +11,7 @@ RUN export DEBIAN_FRONTEND=noninteractive; \
         make \
         python3 \
         python3-pip \
+        python3-dev \
         ssh \
         sudo \
         wget \
@@ -18,26 +19,25 @@ RUN export DEBIAN_FRONTEND=noninteractive; \
         glslang-tools \
         libvulkan-dev \
         vulkan-validationlayers \
-        libglfw3-dev \
-    && rm -rf /var/lib/apt/lists/*
+        libglfw3-dev
 
 ENV LANG en_US.utf8
 
 # Install ROCM HIP and libraries using the installer script
 RUN export DEBIAN_FRONTEND=noninteractive; \
-    wget https://repo.radeon.com/amdgpu-install/5.7/ubuntu/focal/amdgpu-install_5.7.50700-1_all.deb \
+    wget https://repo.radeon.com/amdgpu-install/5.7.1/ubuntu/focal/amdgpu-install_5.7.50701-1_all.deb \
     && apt-get update -qq \
-    && apt-get install -y ./amdgpu-install_5.7.50700-1_all.deb \
-    && rm ./amdgpu-install_5.7.50700-1_all.deb \
+    && apt-get install -y ./amdgpu-install_5.7.50701-1_all.deb \
+    && rm ./amdgpu-install_5.7.50701-1_all.deb \
     && amdgpu-install -y --usecase=hiplibsdk --no-dkms \
-    && apt-get install -y libnuma-dev \
+    && apt-get install -y libnuma-dev rocm-gdb \
     && rm -rf /var/lib/apt/lists/*
 
 # Install CMake
-RUN wget https://github.com/Kitware/CMake/releases/download/v3.21.7/cmake-3.21.7-linux-x86_64.sh \
+RUN wget https://github.com/Kitware/CMake/releases/download/v3.27.7/cmake-3.27.7-linux-x86_64.sh \
     && mkdir /cmake \
-    && sh cmake-3.21.7-linux-x86_64.sh --skip-license --prefix=/cmake \
-    && rm cmake-3.21.7-linux-x86_64.sh
+    && sh cmake-3.27.7-linux-x86_64.sh --skip-license --prefix=/cmake \
+    && rm cmake-3.27.7-linux-x86_64.sh
 
 ENV PATH="/cmake/bin:/opt/rocm/bin:${PATH}"
 
@@ -57,6 +57,6 @@ RUN mkdir /workspaces && chown developer:developer /workspaces
 WORKDIR /workspaces
 VOLUME /workspaces
 
-USER developer
+#USER developer
 
 COPY . .
