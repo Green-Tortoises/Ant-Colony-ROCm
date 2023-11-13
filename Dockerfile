@@ -19,8 +19,7 @@ RUN export DEBIAN_FRONTEND=noninteractive; \
         glslang-tools \
         libvulkan-dev \
         vulkan-validationlayers \
-        libglfw3-dev \
-    && rm -rf /var/lib/apt/lists/*
+        libglfw3-dev
 
 ENV LANG en_US.utf8
 
@@ -31,7 +30,7 @@ RUN export DEBIAN_FRONTEND=noninteractive; \
     && apt-get install -y ./amdgpu-install_5.7.50701-1_all.deb \
     && rm ./amdgpu-install_5.7.50701-1_all.deb \
     && amdgpu-install -y --usecase=hiplibsdk --no-dkms \
-    && apt-get install -y libnuma-dev \
+    && apt-get install -y libnuma-dev rocm-gdb \
     && rm -rf /var/lib/apt/lists/*
 
 # Install CMake

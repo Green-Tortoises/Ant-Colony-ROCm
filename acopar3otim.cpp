@@ -2,17 +2,11 @@
     Esse algoritmo de Colonia de Formiga implementa a busca
     estocástica sem a vantagem heurística do melhor caminho a ser escolhido.
     Ele foi reestruturado para beneficiar a paralelização. Assim, cada formiga
-    escolhe seu conjunto e já roda o knn sobre sua solução. ESTOU TENTANDO ALOCAR
-    UM POUCO DE MEMÓRIA DINAMICAMENTE E UM POUCO ESTÁTICA PARA VER SE CONSIGO RODAR
-    BASES MAIORES QUE 14000 INSTÂNCIAS.
+    escolhe seu conjunto e já roda o knn sobre sua solução.
     A base maior que rodei foi a dos presos que forneceu a saida em 23hs mais ou menos.
 */
 #define __HIP_PLATFORM_AMD__
 
-#include <fstream>
-#include <iostream>
-#include <vector>
-#include <string>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -20,6 +14,12 @@
 #include <math.h>
 #include <float.h>
 #include <time.h>
+
+#include <fstream>
+#include <iostream>
+#include <vector>
+#include <string>
+#include <memory>
 
 #include <hip/hip_runtime.h>
 #include <hip/hip_runtime_api.h>
@@ -39,7 +39,6 @@ int *d_ant_choices;
 int *d_last_choices;
 int *d_ultimo;
 float *d_pheromone_trails;
-
 
 class Matrix {
 public:
@@ -66,8 +65,8 @@ public:
 
     void print() {
         size_t size = this->num_rows*this->num_columns;
-        float mtr[size];
-        hipMemcpy(mtr, this->matrix, size*sizeof(float), hipMemcpyDeviceToHost);
+        std::vector<float> mtr(size);
+        hipMemcpy(mtr.data(), this->matrix, size*sizeof(float), hipMemcpyDeviceToHost);
 
         std::cout << "CSV Header:\n[ ";
         for (size_t i = 0; i < this->headers.size(); ++i) {
@@ -117,7 +116,7 @@ void create_colony() {
     dim3 dimGrid((NUM_INSTANCES + dimBlock.x - 1) / dimBlock.x,
                  (NUM_INSTANCES + dimBlock.y - 1) / dimBlock.y);
 
-    printf("Pointer to the colony on GPU: %p\nNumber of instances: %d\n", d_the_colony, NUM_INSTANCES);
+    printf("Pointer to the colony on GPU: %p\nNumber of instances: %d\n", (void*) d_the_colony, NUM_INSTANCES);
     hipLaunchKernelGGL(_set_colony_diagonal, dimGrid, dimBlock, 0, 0, d_the_colony, NUM_INSTANCES);
 
     err = hipGetLastError();
@@ -169,18 +168,6 @@ void read_csv(const char *filename, Matrix *csv) {
     hipMemcpy(csv->matrix, values.data(), values.size()*sizeof(float), hipMemcpyHostToDevice);
 
     std::cout << csv->num_rows << " instances x " << csv->num_columns << " attributes loaded!\n";
-}
-
-__global__ void _create_pheromone_trails(float *dvc_pheromone_trails, size_t size, int initial_pheromone) {
-    int x = blockIdx.x*blockDim.x+threadIdx.x;
-    int y = blockIdx.y*blockDim.y+threadIdx.y;
-
-    if (x < size && y < size) {
-        if (x != y)
-            dvc_pheromone_trails[y*size+x] = initial_pheromone;
-        else
-            dvc_pheromone_trails[y*size+x] = 0;
-    }
 }
 
 float calc_acertos(int* matches, int total) {
@@ -249,10 +236,10 @@ __device__ void ant_action(int ant, int* the_colony, float* tst_matrix, float* m
 
             if (dist_completo < menor_distance_conjunto_completo) {
                 menor_distance_conjunto_completo = dist_completo;
-                current_class = matrix[inst_select * num_attr + num_attr - 1];
+                current_class_conjunto_completo = matrix[inst_select * num_attr + num_attr - 1];
             }
         }
-        if (current_class == tst_matrix[inst_tst * num_attr_tst + num_attr_tst - 1]) {
+        if (current_class_conjunto_completo == tst_matrix[inst_tst * num_attr_tst + num_attr_tst - 1]) {
             matches_completo[num_inst_test*ant + inst_tst] = 1;
         } else {
             matches_completo[num_inst_test*ant + inst_tst] = 0;
@@ -267,12 +254,12 @@ __global__ void ant_kernel(int* the_colony, float* tst_matrix, float* matrix, in
     ant_action(ant, the_colony, tst_matrix, matrix, matches, matches_completo, num_inst, num_inst_tst, num_attr, num_attr_tst, random_numbers_seed);
 }
 
-static int best_solution_size(int *the_colony, size_t the_colony_size, size_t row_size, int best_ant) {
+static int best_solution_size(int *the_colony, size_t size, int row_size, int best_ant) {
     int instances_selected = 0;
 
     std::cout << "Best ant: " << best_ant << ":\n";
 
-    for (int i = 0; i < the_colony_size; i++) {
+    for (int i = 0; i < size; i++) {
         if (the_colony[row_size*best_ant + i] == 1) {
             instances_selected++;
             std::cout << the_colony[row_size*best_ant + i] << "  ";
@@ -284,13 +271,17 @@ static int best_solution_size(int *the_colony, size_t the_colony_size, size_t ro
     return instances_selected;
 }
 
-static int print_accuracy_results(int *matches, size_t size) {
+static inline void print_accuracy_results_default_ant(int *matches, int size) {
+    printf("%f", calc_acertos(matches, size));
+}
+
+static int print_accuracy_results(int *matches, int size) {
     int bestAnt = -1;
     float bestAccuracy = 0.0f;
 
     float accuracyI;
     for (int i = 0; i < size; i++) {
-        accuracyI = calc_acertos(&matches[i], size);
+        accuracyI = calc_acertos(&matches[i*size], size);
 
         if (accuracyI > bestAccuracy) {
             bestAccuracy = accuracyI;
@@ -329,14 +320,10 @@ int main(int argc, char **argv) {
     NUM_INSTANCES_TST = test->num_rows;
     NUM_ATTR_TST      = test->num_columns;
 
-    // Creating auxiliar matrix
-    hipMalloc(&d_last_choices, MAX_INSTANCES*sizeof(int));
-    hipMalloc(&d_ultimo, MAX_INSTANCES*sizeof(int));
-
     create_colony();
     printf("Colony created in VRAM.\n");
 
-    // Creating the matches matrix all 0 for the GPU results
+    // Creating the matches matrix all for the GPU results
     int *d_matches;
     hipMalloc(&d_matches, NUM_INSTANCES_TST*NUM_INSTANCES_TST*sizeof(int));
     hipMemset(d_matches, 0, NUM_INSTANCES_TST*NUM_INSTANCES_TST*sizeof(int));
@@ -347,8 +334,9 @@ int main(int argc, char **argv) {
     }
 
     // Setting up kernel launch parameters
-    dim3 dimBlock(NUM_INSTANCES);
-    dim3 dimGrid(1);
+    const int dimSize = 1024;
+    dim3 dimBlock(dimSize);
+    dim3 dimGrid((NUM_INSTANCES + dimSize - 1) / dimSize);
 
     // Creating a vector containing an ant
     int *d_matches_completo;
@@ -370,38 +358,36 @@ int main(int argc, char **argv) {
     }
 
     // Retrieving results back to host
-    int *matches = (int*)malloc(NUM_INSTANCES_TST*NUM_INSTANCES_TST*sizeof(int));
-    hipMemcpy(matches, d_matches, NUM_INSTANCES_TST*NUM_INSTANCES_TST*sizeof(int), hipMemcpyDeviceToHost);
+    std::vector<int> matches(NUM_INSTANCES_TST*NUM_INSTANCES_TST);
+    hipMemcpy(matches.data(), d_matches, NUM_INSTANCES_TST*NUM_INSTANCES_TST*sizeof(int), hipMemcpyDeviceToHost);
 
-    int *matches_completo = (int*)malloc(NUM_INSTANCES_TST*sizeof(int));
-    hipMemcpy(matches_completo, d_matches_completo, NUM_INSTANCES_TST*sizeof(int), hipMemcpyDeviceToHost);
+    std::vector<int> matches_completo(NUM_INSTANCES_TST);
+    hipMemcpy(matches_completo.data(), d_matches_completo, NUM_INSTANCES_TST*sizeof(int), hipMemcpyDeviceToHost);
 
 
     printf("Accuracy of ");
-    int ant = print_accuracy_results(matches, NUM_INSTANCES_TST);
+    int ant = print_accuracy_results(matches.data(), NUM_INSTANCES_TST);
     printf(" got from ant %d\n", ant);
 
     std::cout << "-------------\n";
 
+    if (ant < 0) {
+        printf("Failed to find the best ant!\n");
+        exit(1);
+    }
+
     printf("Accuracy of ");
-    int default_ant = print_accuracy_results(matches_completo, NUM_INSTANCES_TST);
+    print_accuracy_results_default_ant(matches_completo.data(), matches_completo.size());
     printf(" got from the default ant\n");
 
     std::cout << "-------------\n";
 
-    int *h_the_colony = (int*)malloc(NUM_INSTANCES_TST*NUM_INSTANCES_TST*sizeof(int));
-    hipMemcpy(h_the_colony, d_the_colony, NUM_INSTANCES_TST*NUM_INSTANCES_TST*sizeof(int), hipMemcpyDeviceToHost);
+    std::vector<int> h_the_colony(NUM_INSTANCES_TST*NUM_INSTANCES_TST);
+    hipMemcpy(h_the_colony.data(), d_the_colony, NUM_INSTANCES_TST*NUM_INSTANCES_TST*sizeof(int), hipMemcpyDeviceToHost);
 
-    exit(0);
-    int best_size = best_solution_size(h_the_colony, NUM_INSTANCES, train->num_rows, ant);
-    exit(0);
+    int best_size = best_solution_size(h_the_colony.data(), NUM_INSTANCES, train->num_columns, ant);
 
     std::cout << "Size of the database: " << NUM_INSTANCES << ", size of the best ant solution: " << best_size << "\n";
-
-    // Freeing RAM memory
-    free(matches);
-    free(matches_completo);
-    free(h_the_colony);
 
     // Freeing GPU memory
     hipFree(d_the_colony);
