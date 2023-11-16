@@ -192,9 +192,8 @@ __device__ float distance(float* instance1, float* instance2, int attributes) {
 __device__ void ant_action(int ant, int* the_colony, float* tst_matrix, float* matrix, int* matches, int *matches_completo,
                            int num_inst, int num_inst_test, int num_attr, int num_attr_tst, int random_numbers_seed)
 {
-    uint tid = blockDim.x * blockIdx.x + threadIdx.x;
 	rocrand_state_xorwow state;
-	rocrand_init(random_numbers_seed, tid, 0, &state);
+	rocrand_init(random_numbers_seed, ant, 0, &state);
 
     int ajk;
     for (int j = 0; j < num_inst; j++) {
@@ -214,7 +213,7 @@ __device__ void ant_action(int ant, int* the_colony, float* tst_matrix, float* m
         float current_class = -1.0f;
 
         for (int inst_select = 0; inst_select < num_inst; inst_select++) {
-            if (the_colony[ant * num_inst + inst_select] == 1) {
+            if ((ant * num_inst + inst_select) < num_inst && the_colony[ant * num_inst + inst_select] == 1) {
                 float dist = distance(&tst_matrix[inst_tst * num_attr_tst], &matrix[inst_select * num_attr], num_attr_tst - 1);
                 if (dist < menor_distance) {
                     menor_distance = dist;
@@ -251,19 +250,22 @@ __device__ void ant_action(int ant, int* the_colony, float* tst_matrix, float* m
 __global__ void ant_kernel(int* the_colony, float* tst_matrix, float* matrix, int* matches, int* matches_completo, int num_inst,
                            int num_inst_tst, int num_attr, int num_attr_tst, int random_numbers_seed) {
     int ant = blockDim.x*blockIdx.x + threadIdx.x;
+
+    // Threads can be over spawned, removing unnecessary threads
+    if(ant > num_attr)
+        return;
+
     ant_action(ant, the_colony, tst_matrix, matrix, matches, matches_completo, num_inst, num_inst_tst, num_attr, num_attr_tst, random_numbers_seed);
 }
 
 static int best_solution_size(int *the_colony, size_t size, int row_size, int best_ant) {
     int instances_selected = 0;
 
-    std::cout << "Best ant: " << best_ant << ":\n";
+    std::cout << "Best ant: " << best_ant << "\n";
 
     for (int i = 0; i < size; i++) {
-        if (the_colony[row_size*best_ant + i] == 1) {
+        if (the_colony[row_size*best_ant + i] == 1)
             instances_selected++;
-            std::cout << the_colony[row_size*best_ant + i] << "  ";
-        }
     }
 
     std::cout << "\n";
@@ -334,7 +336,7 @@ int main(int argc, char **argv) {
     }
 
     // Setting up kernel launch parameters
-    const int dimSize = 1024;
+    const int dimSize = 256;
     dim3 dimBlock(dimSize);
     dim3 dimGrid((NUM_INSTANCES + dimSize - 1) / dimSize);
 
