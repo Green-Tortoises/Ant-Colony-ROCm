@@ -1,4 +1,4 @@
-# Ant-Colony-ROCm
+# Ant Colony ROCm
 
 Ant Colony Opitmizations running in a ROCm enviroment (ONLY WORKING FOR AMD CARDS). Nvidia support is planned.
 
